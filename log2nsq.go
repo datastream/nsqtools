@@ -1,0 +1,182 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"github.com/bitly/nsq/nsq"
+	"github.com/bmizerany/logplex"
+	"io"
+	"log"
+	"net"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+var (
+	port             = flag.String("port", ":515", "log reciever port")
+	topic            = flag.String("topic", "nginx_log", "nsq topic")
+	lookupdHTTPAddrs = flag.String("lookupd-http-address", "127.0.0.1:4161", "lookupd http")
+)
+
+func main() {
+	flag.Parse()
+	// get nsqd list
+	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
+	nsqd_ch := make(chan string)
+	logchan := make(chan []byte)
+	go lookupnsqd(lookupdlist, nsqd_ch)
+	go push_data(nsqd_ch, *topic, logchan)
+	// signal
+	termchan := make(chan os.Signal, 1)
+	exitChan := make(chan int)
+	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-termchan
+		exitChan <- 1
+	}()
+	// tcp server
+	go run_server(*port, logchan)
+	<-exitChan
+}
+
+// incoming server
+func run_server(port string, logchan chan []byte) {
+	server, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatal("server bind failed:", err)
+	}
+	defer server.Close()
+	for {
+		fd, err := server.Accept()
+		if err != nil {
+			log.Println("accept error", err)
+		}
+		go loghandle(fd, logchan)
+	}
+}
+
+func loghandle(fd net.Conn, logchan chan []byte) {
+	defer fd.Close()
+	rbuf := bufio.NewReader(fd)
+	reader := logplex.NewReader(rbuf)
+	for {
+		msg, err := reader.ReadMsg()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Println("read log failed", err)
+		}
+		if msg_json, err := json.Marshal(msg); err == nil {
+			logchan <- msg_json
+		} else {
+			log.Println("json:", err)
+		}
+	}
+}
+func lookupnsqd(lookupdaddrs []string, nsqd_ch chan string) {
+	ticker := time.NewTicker(60 * time.Second)
+	for {
+		for _, addr := range lookupdaddrs {
+			endpoint := fmt.Sprintf("http://%s/nodes", addr)
+			log.Printf("LOOKUPD: querying %s", endpoint)
+			data, err := nsq.ApiRequest(endpoint)
+			if err != nil {
+				log.Printf("ERROR: lookupd %s - %s", endpoint, err.Error())
+				continue
+			}
+			producers := data.Get("producers")
+			producersArray, _ := producers.Array()
+			for i, _ := range producersArray {
+				producer := producers.GetIndex(i)
+				address := producer.Get("address").MustString()
+				tcpPort := producer.Get("tcp_port").MustInt()
+				port := strconv.Itoa(tcpPort)
+				nsqd_ch <- address + ":" + port
+				log.Println(address, ":", port)
+			}
+		}
+		<-ticker.C
+	}
+}
+
+type NsqdServer struct {
+	Conn     net.Conn
+	NsqdAddr string
+}
+
+// connect nsqd
+func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
+	nsqd_list := make(map[string]*NsqdServer)
+	done := make(chan string)
+	for {
+		select {
+		case nsqd := <-nsqd_ch:
+			if _, ok := nsqd_list[nsqd]; ok {
+				continue
+			}
+			conn, err := net.DialTimeout("tcp", nsqd, time.Second)
+			if err != nil {
+				log.Println("connect failed:", err)
+				continue
+			}
+			n := &NsqdServer{
+				Conn:     conn,
+				NsqdAddr: nsqd,
+			}
+			nsqd_list[nsqd] = n
+			go message_handler(n, topic, logchan, done)
+		case nsq := <-done:
+			delete(nsqd_list, nsq)
+			log.Println("disconnect:", nsq)
+			nsqd_ch <- nsq
+		}
+	}
+}
+
+func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, done chan string) {
+	defer nsqdserver.Conn.Close()
+	nsqdserver.Conn.Write(nsq.MagicV2)
+	rwbuf := bufio.NewReadWriter(bufio.NewReader(nsqdserver.Conn), bufio.NewWriter(nsqdserver.Conn))
+	for {
+		var batch [][]byte
+		for i := 0; i < 2; i++ {
+			line := <-logchan
+			if len(line) > 0 {
+				batch = append(batch, line)
+			}
+		}
+		cmd, _ := nsq.MultiPublish(topic, batch)
+		err := cmd.Write(rwbuf)
+		if err != nil {
+			log.Println("write buf error", err)
+			done <- nsqdserver.NsqdAddr
+			break
+		}
+		err = rwbuf.Flush()
+		if err != nil {
+			log.Println("flush buf error", err)
+			done <- nsqdserver.NsqdAddr
+			break
+		}
+		resp, err := nsq.ReadResponse(rwbuf)
+		if err != nil {
+			log.Println("failed to read response", err)
+			done <- nsqdserver.NsqdAddr
+			break
+		}
+		_, data, _ := nsq.UnpackResponse(resp)
+		if !bytes.Equal(data, []byte("OK")) {
+			log.Println("invalid response", err)
+			done <- nsqdserver.NsqdAddr
+			break
+		}
+	}
+}
