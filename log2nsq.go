@@ -46,7 +46,7 @@ func main() {
 	<-exitChan
 }
 
-// incoming server
+// run_server, listen tcp
 func run_server(port string, logchan chan []byte) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
@@ -62,6 +62,7 @@ func run_server(port string, logchan chan []byte) {
 	}
 }
 
+// receive log from tcp socket, encode json and send to logchan
 func loghandle(fd net.Conn, logchan chan []byte) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
@@ -81,6 +82,8 @@ func loghandle(fd net.Conn, logchan chan []byte) {
 		}
 	}
 }
+
+// lookup allo nsqd node, send nsqd node via nsqd_ch
 func lookupnsqd(lookupdaddrs []string, nsqd_ch chan string) {
 	ticker := time.NewTicker(60 * time.Second)
 	for {
@@ -112,7 +115,7 @@ type NsqdServer struct {
 	NsqdAddr string
 }
 
-// connect nsqd
+// connect nsqd, receive nsqd's info from nsqd_ch. create connection
 func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
 	nsqd_list := make(map[string]*NsqdServer)
 	done := make(chan string)
@@ -141,6 +144,7 @@ func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
 	}
 }
 
+// send msg to nsqd node
 func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, done chan string) {
 	defer nsqdserver.Conn.Close()
 	nsqdserver.Conn.Write(nsq.MagicV2)
