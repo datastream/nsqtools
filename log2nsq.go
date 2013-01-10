@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -29,10 +30,6 @@ func main() {
 	flag.Parse()
 	// get nsqd list
 	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
-	nsqd_ch := make(chan string)
-	logchan := make(chan []byte)
-	go lookupnsqd(lookupdlist, nsqd_ch)
-	go push_data(nsqd_ch, *topic, logchan)
 	// signal
 	termchan := make(chan os.Signal, 1)
 	exitChan := make(chan int)
@@ -41,46 +38,76 @@ func main() {
 		<-termchan
 		exitChan <- 1
 	}()
+	var wg sync.WaitGroup
+	logchan := make(chan []byte)
 	// tcp server
-	go run_server(*port, logchan)
-	<-exitChan
+	wg.Add(1)
+	go func() {
+		run_server(*port, logchan, exitChan)
+		wg.Done()
+	}()
+	nsqd_ch := make(chan string)
+	go lookupnsqd(lookupdlist, nsqd_ch)
+	go push_data(nsqd_ch, *topic, logchan)
+	wg.Wait()
+	log.Println("Server is going down")
+	time.Sleep(time.Second * 2)
 }
 
 // run_server, listen tcp
-func run_server(port string, logchan chan []byte) {
+func run_server(port string, logchan chan []byte, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
 	}
 	defer server.Close()
-	for {
-		fd, err := server.Accept()
-		if err != nil {
-			log.Println("accept error", err)
+	client_count := 0
+	client_exit := make(chan int)
+	stat := 0
+	go func() {
+		for {
+			fd, err := server.Accept()
+			if stat > 0 {
+				break
+			}
+			client_count++
+			if err != nil {
+				log.Println("accept error", err)
+			}
+			go loghandle(fd, logchan, client_exit)
 		}
-		go loghandle(fd, logchan)
+	}()
+	<-exitchan
+	stat = 1
+	for i := 0; i < client_count; i++ {
+		client_exit <- 1
 	}
+	log.Println("All connection closed")
 }
 
 // receive log from tcp socket, encode json and send to logchan
-func loghandle(fd net.Conn, logchan chan []byte) {
+func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
-	for {
-		msg, err := reader.ReadMsg()
-		if err == io.EOF {
-			break
+	go func() {
+		for {
+			msg, err := reader.ReadMsg()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Println("read log failed", err)
+				break
+			}
+			if msg_json, err := json.Marshal(msg); err == nil {
+				logchan <- msg_json
+			} else {
+				log.Println("json:", err)
+			}
 		}
-		if err != nil {
-			log.Println("read log failed", err)
-		}
-		if msg_json, err := json.Marshal(msg); err == nil {
-			logchan <- msg_json
-		} else {
-			log.Println("json:", err)
-		}
-	}
+	}()
+	<-exitchan
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
