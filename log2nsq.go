@@ -64,8 +64,15 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 	client_count := 0
 	client_exit := make(chan int)
 	stat := 0
-	go func() {
-		for {
+	var wg sync.WaitGroup
+	for {
+		select {
+		case <-exitchan:
+			for i := 0; i < client_count; i++ {
+				client_exit <- 1
+			}
+			break
+		default:
 			fd, err := server.Accept()
 			if stat > 0 {
 				break
@@ -74,14 +81,14 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 			if err != nil {
 				log.Println("accept error", err)
 			}
-			go loghandle(fd, logchan, client_exit)
+			go func() {
+				wg.Add(1)
+				loghandle(fd, logchan, client_exit)
+				wg.Done()
+			}()
 		}
-	}()
-	<-exitchan
-	stat = 1
-	for i := 0; i < client_count; i++ {
-		client_exit <- 1
 	}
+	wg.Wait()
 	log.Println("All connection closed")
 }
 
