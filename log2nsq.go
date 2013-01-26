@@ -34,11 +34,13 @@ func main() {
 	termchan := make(chan os.Signal, 1)
 	exitChan := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
+	var wg sync.WaitGroup
 	go func() {
+		wg.Add(1)
 		<-termchan
+		wg.Done()
 		exitChan <- 1
 	}()
-	var wg sync.WaitGroup
 	logchan := make(chan []byte)
 	// tcp server
 	go func() {
