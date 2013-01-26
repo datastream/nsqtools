@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	port             = flag.String("port", ":515", "log reciever port")
+	port             = flag.String("port", ":1514", "log reciever port")
 	topic            = flag.String("topic", "nginx_log", "nsq topic")
 	lookupdHTTPAddrs = flag.String("lookupd-http-address", "127.0.0.1:4161", "lookupd http")
 )
