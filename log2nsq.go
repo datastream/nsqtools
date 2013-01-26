@@ -35,8 +35,8 @@ func main() {
 	exitChan := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		<-termchan
 		wg.Done()
 		exitChan <- 1
