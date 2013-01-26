@@ -41,8 +41,8 @@ func main() {
 	var wg sync.WaitGroup
 	logchan := make(chan []byte)
 	// tcp server
-	wg.Add(1)
 	go func() {
+		wg.Add(1)
 		run_server(*port, logchan, exitChan)
 		wg.Done()
 	}()
@@ -63,20 +63,18 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 	defer server.Close()
 	client_count := 0
 	client_exit := make(chan int)
-	stat := 0
+	stat := true
+	go func() {
+		<-exitchan
+		stat = false
+		for i := 0; i < client_count; i++ {
+			client_exit <- 1
+		}
+	}()
 	var wg sync.WaitGroup
 	for {
-		select {
-		case <-exitchan:
-			for i := 0; i < client_count; i++ {
-				client_exit <- 1
-			}
-			break
-		default:
+		if stat {
 			fd, err := server.Accept()
-			if stat > 0 {
-				break
-			}
 			client_count++
 			if err != nil {
 				log.Println("accept error", err)
@@ -86,6 +84,8 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 				loghandle(fd, logchan, client_exit)
 				wg.Done()
 			}()
+		} else {
+			break
 		}
 	}
 	wg.Wait()
@@ -97,11 +97,13 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
+	stat := true
+	go func() {
+		<-exitchan
+		stat = false
+	}()
 	for {
-		select {
-		case <-exitchan:
-			break
-		default:
+		if stat {
 			msg, err := reader.ReadMsg()
 			if err == io.EOF {
 				break
@@ -112,11 +114,16 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 				fd.SetReadDeadline(zero)
 				continue
 			}
+			if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
+				break
+			}
 			if msg_json, err := json.Marshal(msg); err == nil {
 				logchan <- msg_json
 			} else {
 				log.Println("json:", err)
 			}
+		} else {
+			break
 		}
 	}
 }
