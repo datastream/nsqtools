@@ -90,8 +90,11 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
-	go func() {
-		for {
+	for {
+		select {
+		case <-exitchan:
+			break
+		default:
 			msg, err := reader.ReadMsg()
 			if err == io.EOF {
 				break
@@ -106,8 +109,7 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 				log.Println("json:", err)
 			}
 		}
-	}()
-	<-exitchan
+	}
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
