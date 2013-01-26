@@ -108,7 +108,9 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 			}
 			if err != nil {
 				log.Println("read log failed", err)
-				break
+				var zero time.Time
+				fd.SetReadDeadline(zero)
+				continue
 			}
 			if msg_json, err := json.Marshal(msg); err == nil {
 				logchan <- msg_json
