@@ -56,39 +56,39 @@ func main() {
 	time.Sleep(time.Second * 2)
 }
 
-// run_server, listen tcp
+// run_server, listen tcp, it may contain race condtion
 func run_server(port string, logchan chan []byte, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
 	}
-	defer server.Close()
 	client_count := 0
 	client_exit := make(chan int)
-	stat := true
+	var wg sync.WaitGroup
 	go func() {
-		<-exitchan
-		stat = false
-		for i := 0; i < client_count; i++ {
-			client_exit <- 1
+		for {
+			fd, err := server.Accept()
+			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+				break
+			}
+			if err != nil {
+				log.Fatal("accept error", err)
+				time.Sleep(time.Second)
+			} else {
+				go func() {
+					wg.Add(1)
+					client_count++
+					loghandle(fd, logchan, client_exit)
+					client_count--
+					wg.Done()
+				}()
+			}
 		}
 	}()
-	var wg sync.WaitGroup
-	for {
-		if stat {
-			fd, err := server.Accept()
-			client_count++
-			if err != nil {
-				log.Println("accept error", err)
-			}
-			go func() {
-				wg.Add(1)
-				loghandle(fd, logchan, client_exit)
-				wg.Done()
-			}()
-		} else {
-			break
-		}
+	<-exitchan
+	server.Close()
+	for i := 0; i < client_count; i++ {
+		client_exit <- 1
 	}
 	wg.Wait()
 	log.Println("All connection closed")
@@ -99,35 +99,23 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
-	stat := true
 	go func() {
-		<-exitchan
-		stat = false
-	}()
-	for {
-		if stat {
+		for {
 			msg, err := reader.ReadMsg()
-			if err == io.EOF {
+			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
 				break
 			}
 			if err != nil {
-				log.Println("read log failed", err)
-				var zero time.Time
-				fd.SetReadDeadline(zero)
-				continue
-			}
-			if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
-				break
+				log.Fatal("read log failed", err)
 			}
 			if msg_json, err := json.Marshal(msg); err == nil {
 				logchan <- msg_json
 			} else {
 				log.Println("json:", err)
 			}
-		} else {
-			break
 		}
-	}
+	}()
+	<-exitchan
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
