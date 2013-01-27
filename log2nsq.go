@@ -102,11 +102,15 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
-			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
+			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+				break
+			}
+			if err == io.EOF {
 				break
 			}
 			if err != nil {
 				log.Fatal("read log failed", err)
+				continue
 			}
 			if msg_json, err := json.Marshal(msg); err == nil {
 				logchan <- msg_json
