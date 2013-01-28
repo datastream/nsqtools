@@ -32,7 +32,7 @@ func main() {
 	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
 	// signal
 	termchan := make(chan os.Signal, 1)
-	exitChan := make(chan int)
+	exittcp := make(chan int)
 	exitnsq := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	var wg sync.WaitGroup
@@ -40,25 +40,23 @@ func main() {
 	go func() {
 		<-termchan
 		wg.Done()
-		exitChan <- 1
+		exittcp <- 1
 		exitnsq <- 1
 	}()
 	logchan := make(chan []byte)
 	// tcp server
 	go func() {
 		wg.Add(1)
-		run_server(*port, logchan, exitChan)
+		run_server(*port, logchan, exittcp)
 		wg.Done()
 	}()
-	nsqd_ch := make(chan string)
-	go lookupnsqd(lookupdlist, nsqd_ch)
-	go push_data(nsqd_ch, *topic, logchan, exitnsq)
+	go lookupnsqd(lookupdlist, *topic, logchan, exitnsq)
 	wg.Wait()
 	log.Println("Server is going down")
 	time.Sleep(time.Second * 2)
 }
 
-// run_server, listen tcp, it may contain race condtion
+// run_server, listen tcp
 func run_server(port string, logchan chan []byte, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
@@ -66,6 +64,7 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 	}
 	client_count := 0
 	client_exit := make(chan int)
+	var client_lock sync.Mutex
 	var wg sync.WaitGroup
 	go func() {
 		for {
@@ -79,9 +78,13 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 			} else {
 				go func() {
 					wg.Add(1)
+					client_lock.Lock()
 					client_count++
+					client_lock.Unlock()
 					loghandle(fd, logchan, client_exit)
+					client_lock.Lock()
 					client_count--
+					client_lock.Unlock()
 					wg.Done()
 				}()
 			}
@@ -89,9 +92,11 @@ func run_server(port string, logchan chan []byte, exitchan chan int) {
 	}()
 	<-exitchan
 	server.Close()
+	client_lock.Lock()
 	for i := 0; i < client_count; i++ {
 		client_exit <- 1
 	}
+	client_lock.Unlock()
 	wg.Wait()
 	log.Println("All connection closed")
 }
@@ -124,82 +129,91 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	<-exitchan
 }
 
-// lookup allo nsqd node, send nsqd node via nsqd_ch
-func lookupnsqd(lookupdaddrs []string, nsqd_ch chan string) {
-	ticker := time.NewTicker(60 * time.Second)
-	for {
-		for _, addr := range lookupdaddrs {
-			endpoint := fmt.Sprintf("http://%s/nodes", addr)
-			log.Printf("LOOKUPD: querying %s", endpoint)
-			data, err := nsq.ApiRequest(endpoint)
-			if err != nil {
-				log.Printf("ERROR: lookupd %s - %s", endpoint, err.Error())
-				continue
-			}
-			producers := data.Get("producers")
-			producersArray, _ := producers.Array()
-			for i, _ := range producersArray {
-				producer := producers.GetIndex(i)
-				address := producer.Get("address").MustString()
-				tcpPort := producer.Get("tcp_port").MustInt()
-				port := strconv.Itoa(tcpPort)
-				nsqd_ch <- address + ":" + port
-				log.Println(address, ":", port)
-			}
-		}
-		<-ticker.C
-	}
-}
-
 type NsqdServer struct {
 	Conn     net.Conn
 	NsqdAddr string
+	Exitchan chan int
 	Done     chan int
 }
 
-// connect nsqd, receive nsqd's info from nsqd_ch. create connection
-func push_data(nsqd_ch chan string, topic string, logchan chan []byte, exitchan chan int) {
+// lookup allo nsqd node, send nsqd node via nsqd_ch
+func lookupnsqd(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
+	ticker := time.NewTicker(60 * time.Second)
+	var list_lock sync.Mutex
 	nsqd_list := make(map[string]*NsqdServer)
-	nsqd_chan := make(chan string)
-	for {
-		select {
-		case <-exitchan:
-			for _, v := range nsqd_list {
-				v.Done <- 1
+	go func() {
+		for {
+			for _, addr := range lookupdaddrs {
+				nsqd_servers := get_nsqd(addr)
+				for _, nsqd := range nsqd_servers {
+					if _, ok := nsqd_list[nsqd]; ok {
+						continue
+					}
+					n := &NsqdServer{
+						NsqdAddr: nsqd,
+						Exitchan: make(chan int),
+						Done:     make(chan int),
+					}
+					list_lock.Lock()
+					nsqd_list[n.NsqdAddr] = n
+					list_lock.Unlock()
+					go n.message_handler(topic, logchan)
+					go func() {
+						<-n.Done
+						delete(nsqd_list, n.NsqdAddr)
+						log.Println("disconnect:", n.NsqdAddr)
+					}()
+					log.Println("connect", nsqd)
+				}
 			}
-		case nsqd := <-nsqd_ch:
-			if _, ok := nsqd_list[nsqd]; ok {
-				continue
-			}
-			conn, err := net.DialTimeout("tcp", nsqd, time.Second)
-			if err != nil {
-				log.Println("connect failed:", err)
-				continue
-			}
-			n := &NsqdServer{
-				Conn:     conn,
-				NsqdAddr: nsqd,
-				Done:     make(chan int),
-			}
-			nsqd_list[nsqd] = n
-			go message_handler(n, topic, logchan, nsqd_chan)
-		case nsq := <-nsqd_chan:
-			delete(nsqd_list, nsq)
-			log.Println("disconnect:", nsq)
-			nsqd_ch <- nsq
+			<-ticker.C
+		}
+	}()
+	<-exitchan
+	ticker.Stop()
+	list_lock.Lock()
+	for _, v := range nsqd_list {
+		v.Exitchan <- 1
+	}
+	list_lock.Unlock()
+}
+func get_nsqd(lookupaddr string) []string {
+	var nsqd_list []string
+	endpoint := fmt.Sprintf("http://%s/nodes", lookupaddr)
+	log.Printf("LOOKUPD: querying %s", endpoint)
+	data, err := nsq.ApiRequest(endpoint)
+	if err != nil {
+		log.Printf("ERROR: lookupd %s - %s\n", endpoint, err.Error())
+	} else {
+		producers := data.Get("producers")
+		producersArray, _ := producers.Array()
+		for i, _ := range producersArray {
+			producer := producers.GetIndex(i)
+			address := producer.Get("address").MustString()
+			tcpPort := producer.Get("tcp_port").MustInt()
+			port := strconv.Itoa(tcpPort)
+			nsqd_list = append(nsqd_list, address+":"+port)
 		}
 	}
+	return nsqd_list
 }
 
 // send msg to nsqd node
-func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, nsqd_chan chan string) {
-	defer nsqdserver.Conn.Close()
-	nsqdserver.Conn.Write(nsq.MagicV2)
-	rwbuf := bufio.NewReadWriter(bufio.NewReader(nsqdserver.Conn), bufio.NewWriter(nsqdserver.Conn))
+func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
+	var err error
+	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
+	if err != nil {
+		log.Println("connect failed:", err)
+		this.Done <- 1
+		return
+	}
+	defer this.Conn.Close()
+	this.Conn.Write(nsq.MagicV2)
+	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn), bufio.NewWriter(this.Conn))
 	var batch [][]byte
 	for {
 		select {
-		case <-nsqdserver.Done:
+		case <-this.Exitchan:
 			cmd, _ := nsq.MultiPublish(topic, batch)
 			cmd.Write(rwbuf)
 			rwbuf.Flush()
@@ -212,29 +226,26 @@ func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, 
 				err := cmd.Write(rwbuf)
 				if err != nil {
 					log.Println("write buf error", err)
-					nsqd_chan <- nsqdserver.NsqdAddr
 					break
 				}
 				err = rwbuf.Flush()
 				if err != nil {
 					log.Println("flush buf error", err)
-					nsqd_chan <- nsqdserver.NsqdAddr
 					break
 				}
 				resp, err := nsq.ReadResponse(rwbuf)
 				if err != nil {
 					log.Println("failed to read response", err)
-					nsqd_chan <- nsqdserver.NsqdAddr
 					break
 				}
 				_, data, _ := nsq.UnpackResponse(resp)
 				if !bytes.Equal(data, []byte("OK")) {
 					log.Println("invalid response", err)
-					nsqd_chan <- nsqdserver.NsqdAddr
 					break
 				}
 				batch = batch[:0]
 			}
 		}
 	}
+	this.Done <- 1
 }
