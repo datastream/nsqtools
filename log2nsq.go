@@ -33,6 +33,7 @@ func main() {
 	// signal
 	termchan := make(chan os.Signal, 1)
 	exitChan := make(chan int)
+	exitnsq := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -40,6 +41,7 @@ func main() {
 		<-termchan
 		wg.Done()
 		exitChan <- 1
+		exitnsq <- 1
 	}()
 	logchan := make(chan []byte)
 	// tcp server
@@ -50,7 +52,7 @@ func main() {
 	}()
 	nsqd_ch := make(chan string)
 	go lookupnsqd(lookupdlist, nsqd_ch)
-	go push_data(nsqd_ch, *topic, logchan)
+	go push_data(nsqd_ch, *topic, logchan, exitnsq)
 	wg.Wait()
 	log.Println("Server is going down")
 	time.Sleep(time.Second * 2)
@@ -152,14 +154,19 @@ func lookupnsqd(lookupdaddrs []string, nsqd_ch chan string) {
 type NsqdServer struct {
 	Conn     net.Conn
 	NsqdAddr string
+	Done     chan int
 }
 
 // connect nsqd, receive nsqd's info from nsqd_ch. create connection
-func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
+func push_data(nsqd_ch chan string, topic string, logchan chan []byte, exitchan chan int) {
 	nsqd_list := make(map[string]*NsqdServer)
-	done := make(chan string)
+	nsqd_chan := make(chan string)
 	for {
 		select {
+		case <-exitchan:
+			for _, v := range nsqd_list {
+				v.Done <- 1
+			}
 		case nsqd := <-nsqd_ch:
 			if _, ok := nsqd_list[nsqd]; ok {
 				continue
@@ -172,10 +179,11 @@ func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
 			n := &NsqdServer{
 				Conn:     conn,
 				NsqdAddr: nsqd,
+				Done:     make(chan int),
 			}
 			nsqd_list[nsqd] = n
-			go message_handler(n, topic, logchan, done)
-		case nsq := <-done:
+			go message_handler(n, topic, logchan, nsqd_chan)
+		case nsq := <-nsqd_chan:
 			delete(nsqd_list, nsq)
 			log.Println("disconnect:", nsq)
 			nsqd_ch <- nsq
@@ -184,42 +192,49 @@ func push_data(nsqd_ch chan string, topic string, logchan chan []byte) {
 }
 
 // send msg to nsqd node
-func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, done chan string) {
+func message_handler(nsqdserver *NsqdServer, topic string, logchan chan []byte, nsqd_chan chan string) {
 	defer nsqdserver.Conn.Close()
 	nsqdserver.Conn.Write(nsq.MagicV2)
 	rwbuf := bufio.NewReadWriter(bufio.NewReader(nsqdserver.Conn), bufio.NewWriter(nsqdserver.Conn))
+	var batch [][]byte
 	for {
-		var batch [][]byte
-		for i := 0; i < 2; i++ {
-			line := <-logchan
-			if len(line) > 0 {
+		select {
+		case <-nsqdserver.Done:
+			cmd, _ := nsq.MultiPublish(topic, batch)
+			cmd.Write(rwbuf)
+			rwbuf.Flush()
+			break
+		case line := <-logchan:
+			if len(batch) < 20 {
 				batch = append(batch, line)
+			} else {
+				cmd, _ := nsq.MultiPublish(topic, batch)
+				err := cmd.Write(rwbuf)
+				if err != nil {
+					log.Println("write buf error", err)
+					nsqd_chan <- nsqdserver.NsqdAddr
+					break
+				}
+				err = rwbuf.Flush()
+				if err != nil {
+					log.Println("flush buf error", err)
+					nsqd_chan <- nsqdserver.NsqdAddr
+					break
+				}
+				resp, err := nsq.ReadResponse(rwbuf)
+				if err != nil {
+					log.Println("failed to read response", err)
+					nsqd_chan <- nsqdserver.NsqdAddr
+					break
+				}
+				_, data, _ := nsq.UnpackResponse(resp)
+				if !bytes.Equal(data, []byte("OK")) {
+					log.Println("invalid response", err)
+					nsqd_chan <- nsqdserver.NsqdAddr
+					break
+				}
+				batch = batch[:0]
 			}
-		}
-		cmd, _ := nsq.MultiPublish(topic, batch)
-		err := cmd.Write(rwbuf)
-		if err != nil {
-			log.Println("write buf error", err)
-			done <- nsqdserver.NsqdAddr
-			break
-		}
-		err = rwbuf.Flush()
-		if err != nil {
-			log.Println("flush buf error", err)
-			done <- nsqdserver.NsqdAddr
-			break
-		}
-		resp, err := nsq.ReadResponse(rwbuf)
-		if err != nil {
-			log.Println("failed to read response", err)
-			done <- nsqdserver.NsqdAddr
-			break
-		}
-		_, data, _ := nsq.UnpackResponse(resp)
-		if !bytes.Equal(data, []byte("OK")) {
-			log.Println("invalid response", err)
-			done <- nsqdserver.NsqdAddr
-			break
 		}
 	}
 }
