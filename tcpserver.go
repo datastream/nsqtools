@@ -26,7 +26,9 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	go func() {
 		for {
 			fd, err := server.Accept()
-			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+			if err != nil &&
+				strings.Contains(err.Error(),
+					"use of closed network connection") {
 				break
 			}
 			if err != nil {
@@ -65,7 +67,9 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
-			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+			if err != nil &&
+				strings.Contains(err.Error(),
+					"use of closed network connection") {
 				break
 			}
 			if err == io.EOF {

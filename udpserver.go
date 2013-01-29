@@ -28,7 +28,9 @@ func run_udp_server(port string, logchan chan []byte, exitchan chan int) {
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
-			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+			if err != nil &&
+				strings.Contains(err.Error(),
+					"use of closed network connection") {
 				break
 			}
 			if err == io.EOF {
