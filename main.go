@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 )
 
 var (
@@ -19,8 +18,6 @@ var (
 
 func main() {
 	flag.Parse()
-	// get nsqd list
-	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
 	// signal
 	termchan := make(chan os.Signal, 1)
 	exittcp := make(chan int)
@@ -38,11 +35,19 @@ func main() {
 	// tcp server
 	go func() {
 		wg.Add(1)
+		log.Println("Start tcp server at", *port)
 		run_tcp_server(*port, logchan, exittcp)
+		log.Println("Stop tcp server")
 		wg.Done()
 	}()
-	go lookupnsqd(lookupdlist, *topic, logchan, exitnsq)
+	// get nsqd list
+	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
+	go func() {
+		wg.Add(1)
+		log.Println("start nsqd client")
+		connect_nsqd_cluster(lookupdlist, *topic, logchan, exitnsq)
+		log.Println("cleanup nsqd client")
+		wg.Done()
+	}()
 	wg.Wait()
-	log.Println("Server is going down")
-	time.Sleep(time.Second * 2)
 }

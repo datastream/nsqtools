@@ -20,14 +20,14 @@ type NsqdServer struct {
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
-func lookupnsqd(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
+func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
 	ticker := time.NewTicker(60 * time.Second)
 	var list_lock sync.Mutex
 	nsqd_list := make(map[string]*NsqdServer)
 	go func() {
 		for {
 			for _, addr := range lookupdaddrs {
-				nsqd_servers := get_nsqd(addr)
+				nsqd_servers := get_nsqd_list(addr)
 				for _, nsqd := range nsqd_servers {
 					if _, ok := nsqd_list[nsqd]; ok {
 						continue
@@ -60,7 +60,7 @@ func lookupnsqd(lookupdaddrs []string, topic string, logchan chan []byte, exitch
 	}
 	list_lock.Unlock()
 }
-func get_nsqd(lookupaddr string) []string {
+func get_nsqd_list(lookupaddr string) []string {
 	var nsqd_list []string
 	endpoint := fmt.Sprintf("http://%s/nodes", lookupaddr)
 	log.Printf("LOOKUPD: querying %s", endpoint)
@@ -106,13 +106,11 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 				batch = append(batch, line)
 			} else {
 				cmd, _ := nsq.MultiPublish(topic, batch)
-				err := cmd.Write(rwbuf)
-				if err != nil {
+				if err := cmd.Write(rwbuf); err != nil {
 					log.Println("write buf error", err)
 					break
 				}
-				err = rwbuf.Flush()
-				if err != nil {
+				if err = rwbuf.Flush(); err != nil {
 					log.Println("flush buf error", err)
 					break
 				}
@@ -124,7 +122,7 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 				_, data, _ := nsq.UnpackResponse(resp)
 				if !bytes.Equal(data, []byte("OK")) {
 					log.Println("invalid response", err)
-					break
+					continue
 				}
 				batch = batch[:0]
 			}
