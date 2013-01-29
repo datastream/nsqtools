@@ -17,6 +17,7 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
+		return
 	}
 	client_count := 0
 	client_exit := make(chan int)
@@ -54,7 +55,6 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	}
 	client_lock.Unlock()
 	wg.Wait()
-	log.Println("All connection closed")
 }
 
 // receive log from tcp socket, encode json and send to logchan

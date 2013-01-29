@@ -60,6 +60,8 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 	}
 	list_lock.Unlock()
 }
+
+//lookup nsqd from lookupd server
 func get_nsqd_list(lookupaddr string) []string {
 	var nsqd_list []string
 	endpoint := fmt.Sprintf("http://%s/nodes", lookupaddr)

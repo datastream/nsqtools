@@ -21,6 +21,7 @@ func main() {
 	// signal
 	termchan := make(chan os.Signal, 1)
 	exittcp := make(chan int)
+	exitudp := make(chan int)
 	exitnsq := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	var wg sync.WaitGroup
@@ -29,6 +30,7 @@ func main() {
 		<-termchan
 		wg.Done()
 		exittcp <- 1
+		exitudp <- 1
 		exitnsq <- 1
 	}()
 	logchan := make(chan []byte)
@@ -40,7 +42,15 @@ func main() {
 		log.Println("Stop tcp server")
 		wg.Done()
 	}()
-	// get nsqd list
+	// udp server
+	go func() {
+		wg.Add(1)
+		log.Println("Start udp server at", *port)
+		run_udp_server(*port, logchan, exitudp)
+		log.Println("Stop udp server")
+		wg.Done()
+	}()
+	// get lookupd server list
 	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
 	go func() {
 		wg.Add(1)
