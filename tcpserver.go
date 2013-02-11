@@ -79,10 +79,14 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			if msg_json, err := json.Marshal(msg); err == nil {
-				logchan <- msg_json
+			if *enable_json {
+				if msg_json, err := json.Marshal(msg); err == nil {
+					logchan <- msg_json
+				} else {
+					log.Println("json:", err)
+				}
 			} else {
-				log.Println("json:", err)
+				logchan <- msg.Msg
 			}
 		}
 	}()

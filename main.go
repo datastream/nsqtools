@@ -14,6 +14,7 @@ var (
 	port             = flag.String("port", ":1514", "log reciever port")
 	topic            = flag.String("topic", "nginx_log", "nsq topic")
 	lookupdHTTPAddrs = flag.String("lookupd-http-address", "127.0.0.1:4161", "lookupd http")
+	enable_json      = flag.Bool("enable_json", true, "json encode")
 )
 
 func main() {
