@@ -127,8 +127,10 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 					continue
 				}
 				if !bytes.Equal(data, []byte("OK")) {
-					log.Println("response not ok",
-						string(data))
+					if string(data) != "_heartbeat_" {
+						log.Println("response not ok",
+							string(data))
+					}
 					continue
 				}
 				batch = batch[:0]
