@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"github.com/bmizerany/logplex"
+	"github.com/datastream/logplex"
 	"io"
 	"log"
 	"net"
