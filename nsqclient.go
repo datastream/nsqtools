@@ -121,9 +121,14 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 					log.Println("failed to read response", err)
 					break
 				}
-				_, data, _ := nsq.UnpackResponse(resp)
+				_, data, err := nsq.UnpackResponse(resp)
+				if err != nil {
+					log.Println("unpack failed", err)
+					continue
+				}
 				if !bytes.Equal(data, []byte("OK")) {
-					log.Println("invalid response", err)
+					log.Println("response not ok",
+						string(data))
 					continue
 				}
 				batch = batch[:0]
