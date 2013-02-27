@@ -16,12 +16,11 @@ type NsqdServer struct {
 	Conn     net.Conn
 	NsqdAddr string
 	Exitchan chan int
-	Done     chan int
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
 func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	var list_lock sync.Mutex
 	nsqd_list := make(map[string]*NsqdServer)
 	go func() {
@@ -35,15 +34,15 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 					n := &NsqdServer{
 						NsqdAddr: nsqd,
 						Exitchan: make(chan int),
-						Done:     make(chan int),
 					}
 					list_lock.Lock()
 					nsqd_list[n.NsqdAddr] = n
 					list_lock.Unlock()
-					go n.message_handler(topic, logchan)
 					go func() {
-						<-n.Done
+						n.message_handler(topic, logchan)
+						list_lock.Lock()
 						delete(nsqd_list, n.NsqdAddr)
+						list_lock.Unlock()
 						log.Println("disconnect:", n.NsqdAddr)
 					}()
 					log.Println("connect", nsqd)
@@ -89,15 +88,12 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
 	if err != nil {
 		log.Println("connect failed:", err)
-		this.Done <- 1
 		return
 	}
 	defer this.Conn.Close()
 	this.Conn.Write(nsq.MagicV2)
 	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn), bufio.NewWriter(this.Conn))
 	var batch [][]byte
-	exitchan := make(chan int)
-	go keepalive(rwbuf, exitchan)
 	for {
 		select {
 		case <-this.Exitchan:
@@ -112,16 +108,16 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 				cmd, _ := nsq.MultiPublish(topic, batch)
 				if err := cmd.Write(rwbuf); err != nil {
 					log.Println("write buf error", err)
-					break
+					return
 				}
 				if err = rwbuf.Flush(); err != nil {
 					log.Println("flush buf error", err)
-					break
+					return
 				}
 				resp, err := nsq.ReadResponse(rwbuf)
 				if err != nil {
 					log.Println("failed to read response", err)
-					break
+					return
 				}
 				_, data, err := nsq.UnpackResponse(resp)
 				if err != nil {
@@ -135,23 +131,6 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 				}
 				batch = batch[:0]
 			}
-		}
-	}
-	this.Done <- 1
-	exitchan <- 1
-}
-
-func keepalive(rwbuf *bufio.ReadWriter, exitchan chan int) {
-	for {
-		select {
-		case <-exitchan:
-			break
-		default:
-			if err := nsq.Nop().Write(rwbuf); err != nil {
-				log.Println("write buf error", err)
-				break
-			}
-			time.Sleep(time.Second * 30)
 		}
 	}
 }
