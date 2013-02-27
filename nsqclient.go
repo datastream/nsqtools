@@ -39,7 +39,12 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 					nsqd_list[n.NsqdAddr] = n
 					list_lock.Unlock()
 					go func() {
-						n.message_handler(topic, logchan)
+						for {
+							err := n.message_handler(topic, logchan)
+							if err == nil {
+								break
+							}
+						}
 						list_lock.Lock()
 						delete(nsqd_list, n.NsqdAddr)
 						list_lock.Unlock()
@@ -83,12 +88,12 @@ func get_nsqd_list(lookupaddr string) []string {
 }
 
 // send msg to nsqd node
-func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
+func (this *NsqdServer) message_handler(topic string, logchan chan []byte) error {
 	var err error
 	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
 	if err != nil {
 		log.Println("connect failed:", err)
-		return
+		return err
 	}
 	defer this.Conn.Close()
 	this.Conn.Write(nsq.MagicV2)
@@ -100,7 +105,7 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 			cmd, _ := nsq.MultiPublish(topic, batch)
 			cmd.Write(rwbuf)
 			rwbuf.Flush()
-			break
+			return nil
 		case line := <-logchan:
 			if len(batch) < 20 {
 				batch = append(batch, line)
@@ -108,16 +113,16 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 				cmd, _ := nsq.MultiPublish(topic, batch)
 				if err := cmd.Write(rwbuf); err != nil {
 					log.Println("write buf error", err)
-					return
+					return err
 				}
 				if err = rwbuf.Flush(); err != nil {
 					log.Println("flush buf error", err)
-					return
+					return err
 				}
 				resp, err := nsq.ReadResponse(rwbuf)
 				if err != nil {
 					log.Println("failed to read response", err)
-					return
+					return err
 				}
 				_, data, err := nsq.UnpackResponse(resp)
 				if err != nil {
@@ -133,4 +138,5 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 			}
 		}
 	}
+	return nil
 }
