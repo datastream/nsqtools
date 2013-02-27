@@ -41,8 +41,17 @@ func main() {
 	}
 
 	sigChan := make(chan os.Signal, 1)
+	sig2Chan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
+	signal.Notify(sig2Chan, syscall.SIGPIPE)
+
+	go func() {
+		for {
+			<- sig2Chan
+			log.Println("tcp epipe")
+		}
+	}()
 	r, err := nsq.NewReader(*topic, *channel)
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -66,7 +75,8 @@ func main() {
 		log.Println("reader exited")
 	case <-sigChan:
 		r.Stop()
-		log.Println("stop nsq reader")
+		exitchan <- 1
+		log.Println("stop all")
 	}
 	time.Sleep(time.Second)
 }
