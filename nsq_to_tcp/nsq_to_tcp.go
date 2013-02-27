@@ -66,7 +66,7 @@ func main() {
 		log.Println("reader exited")
 	case <-sigChan:
 		r.Stop()
-		exitchan <- 1
+		log.Println("stop nsq reader")
 	}
 	time.Sleep(time.Second)
 }
