@@ -126,7 +126,7 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 					log.Println("unpack failed", err)
 					continue
 				}
-				if !bytes.Equal(data, []byte("OK")) || !bytes.Equal(data, []byte("_heartbeat_")) {
+				if !bytes.Equal(data, []byte("OK")) && !bytes.Equal(data, []byte("_heartbeat_")) {
 					log.Println("response not ok",
 						string(data))
 					continue
