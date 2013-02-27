@@ -96,6 +96,8 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 	this.Conn.Write(nsq.MagicV2)
 	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn), bufio.NewWriter(this.Conn))
 	var batch [][]byte
+	exitchan := make(chan int)
+	go keepalive(rwbuf, exitchan)
 	for {
 		select {
 		case <-this.Exitchan:
@@ -136,4 +138,20 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) {
 		}
 	}
 	this.Done <- 1
+	exitchan <- 1
+}
+
+func keepalive(rwbuf *bufio.ReadWriter, exitchan chan int) {
+	for {
+		select {
+		case <-exitchan:
+			break
+		default:
+			if err := nsq.Nop().Write(rwbuf); err != nil {
+				log.Println("write buf error", err)
+				break
+			}
+			time.Sleep(time.Second * 30)
+		}
+	}
 }
