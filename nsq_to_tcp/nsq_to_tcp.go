@@ -98,18 +98,16 @@ func tcp_server(port string, logchan chan []byte, exitchan chan int) {
 
 func send_log(fd net.Conn, logchan chan []byte) {
 	defer fd.Close()
-	go func() {
-		var err error
-		for {
-			msg, ok := <-logchan
-			if !ok {
-				break
-			}
-			_, err = fd.Write(msg)
-			if err != nil {
-				log.Fatal("write failed", err)
-				break
-			}
+	var err error
+	for {
+		msg, ok := <-logchan
+		if !ok {
+			break
 		}
-	}()
+		_, err = fd.Write(msg)
+		if err != nil {
+			log.Fatal("write failed", err)
+			break
+		}
+	}
 }
