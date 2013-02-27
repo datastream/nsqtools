@@ -109,7 +109,7 @@ func send_log(fd net.Conn, logchan chan []byte) {
 		_, err = fd.Write(msg)
 		if err != nil {
 			logchan <- msg
-			log.Prinln(err)
+			log.Println(err)
 			break
 		}
 	}
