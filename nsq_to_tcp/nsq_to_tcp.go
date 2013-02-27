@@ -63,6 +63,7 @@ func main() {
 
 	select {
 	case <-r.ExitChan:
+		log.Println("reader exited")
 	case <-sigChan:
 		r.Stop()
 		exitchan <- 1
@@ -94,6 +95,7 @@ func tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	}()
 	<-exitchan
 	server.Close()
+	log.Println("tcp server closed")
 }
 
 func send_log(fd net.Conn, logchan chan []byte) {
@@ -106,7 +108,7 @@ func send_log(fd net.Conn, logchan chan []byte) {
 		}
 		_, err = fd.Write(msg)
 		if err != nil {
-			log.Fatal("write failed", err)
+			log.Fatal("write failed ", err)
 			break
 		}
 	}
