@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/bitly/nsq/nsq"
+	"github.com/datastream/logplex"
 	"log"
 	"net"
 	"strconv"
@@ -18,7 +20,7 @@ type NsqdClient struct {
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
-func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
+func connect_nsqd_cluster(lookupdaddrs []string, msg_chan chan *logplex.Msg, exitchan chan int) {
 	ticker := time.NewTicker(30 * time.Second)
 	var list_lock sync.Mutex
 	nsqd_list := make(map[string]*NsqdClient)
@@ -41,7 +43,7 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 					go func() {
 						wg.Add(1)
 						for {
-							err := n.message_handler(topic, logchan, exitchan)
+							err := n.message_handler(msg_chan, exitchan)
 							if err == nil {
 								break
 							}
@@ -90,7 +92,7 @@ func get_nsqd_list(lookupaddr string) []string {
 }
 
 // send msg to nsqd node
-func (this *NsqdClient) message_handler(topic string, logchan chan []byte, exitchan chan int) error {
+func (this *NsqdClient) message_handler(msg_chan chan *logplex.Msg, exitchan chan int) error {
 	var err error
 	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
 	if err != nil {
@@ -100,43 +102,51 @@ func (this *NsqdClient) message_handler(topic string, logchan chan []byte, exitc
 	defer this.Conn.Close()
 	this.Conn.Write(nsq.MagicV2)
 	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn), bufio.NewWriter(this.Conn))
-	var batch [][]byte
+	var topic string
+	var msg_body []byte
 	for {
 		select {
 		case <-exitchan:
-			cmd, _ := nsq.MultiPublish(topic, batch)
-			cmd.Write(rwbuf)
-			rwbuf.Flush()
 			return nil
-		case line := <-logchan:
-			if len(batch) < 20 {
-				batch = append(batch, line)
+		case msg := <-msg_chan:
+			if len(msg.AppName) == 0 {
+				topic = "misc"
 			} else {
-				cmd, _ := nsq.MultiPublish(topic, batch)
-				if err := cmd.Write(rwbuf); err != nil {
-					log.Println("write buf error", err)
-					return err
-				}
-				if err = rwbuf.Flush(); err != nil {
-					log.Println("flush buf error", err)
-					return err
-				}
-				resp, err := nsq.ReadResponse(rwbuf)
-				if err != nil {
-					log.Println("failed to read response", err)
-					return err
-				}
-				_, data, err := nsq.UnpackResponse(resp)
-				if err != nil {
-					log.Println("unpack failed", err)
+				topic = string(msg.AppName)
+			}
+			if *enable_json {
+				if b, err := json.Marshal(msg); err != nil {
+					msg_body = b
+				} else {
+					log.Println(err)
 					continue
 				}
-				if !bytes.Equal(data, []byte("OK")) && !bytes.Equal(data, []byte("_heartbeat_")) {
-					log.Println("response not ok",
-						string(data))
-					continue
-				}
-				batch = batch[:0]
+			} else {
+				msg_body = msg.Msg
+			}
+			cmd := nsq.Publish(topic, msg_body)
+			if err := cmd.Write(rwbuf); err != nil {
+				log.Println("write buf error", err)
+				return err
+			}
+			if err = rwbuf.Flush(); err != nil {
+				log.Println("flush buf error", err)
+				return err
+			}
+			resp, err := nsq.ReadResponse(rwbuf)
+			if err != nil {
+				log.Println("failed to read response", err)
+				return err
+			}
+			_, data, err := nsq.UnpackResponse(resp)
+			if err != nil {
+				log.Println("unpack failed", err)
+				continue
+			}
+			if !bytes.Equal(data, []byte("OK")) && !bytes.Equal(data, []byte("_heartbeat_")) {
+				log.Println("response not ok",
+					string(data))
+				continue
 			}
 		}
 	}

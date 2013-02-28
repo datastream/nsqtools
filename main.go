@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/datastream/logplex"
 	"log"
 	"os"
 	"os/signal"
@@ -12,7 +13,6 @@ import (
 
 var (
 	port             = flag.String("port", ":1514", "log reciever port")
-	topic            = flag.String("topic", "nginx_log", "nsq topic")
 	lookupdHTTPAddrs = flag.String("lookupd-http-address", "127.0.0.1:4161", "lookupd http")
 	enable_json      = flag.Bool("enable_json", true, "json encode")
 )
@@ -34,12 +34,12 @@ func main() {
 		close(exitudp)
 		close(exitnsq)
 	}()
-	logchan := make(chan []byte)
+	msg_chan := make(chan *logplex.Msg)
 	// tcp server
 	go func() {
 		wg.Add(1)
 		log.Println("Start tcp server at", *port)
-		run_tcp_server(*port, logchan, exittcp)
+		run_tcp_server(*port, msg_chan, exittcp)
 		log.Println("Stop tcp server")
 		wg.Done()
 	}()
@@ -47,7 +47,7 @@ func main() {
 	go func() {
 		wg.Add(1)
 		log.Println("Start udp server at", *port)
-		run_udp_server(*port, logchan, exitudp)
+		run_udp_server(*port, msg_chan, exitudp)
 		log.Println("Stop udp server")
 		wg.Done()
 	}()
@@ -56,7 +56,7 @@ func main() {
 	go func() {
 		wg.Add(1)
 		log.Println("start nsqd client")
-		connect_nsqd_cluster(lookupdlist, *topic, logchan, exitnsq)
+		connect_nsqd_cluster(lookupdlist, msg_chan, exitnsq)
 		log.Println("cleanup nsqd client")
 		wg.Done()
 	}()

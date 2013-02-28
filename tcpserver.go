@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"github.com/datastream/logplex"
 	"io"
 	"log"
@@ -13,7 +12,7 @@ import (
 )
 
 // tcp_server
-func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
+func run_tcp_server(port string, msg_chan chan *logplex.Msg, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
@@ -35,7 +34,7 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 			} else {
 				go func() {
 					wg.Add(1)
-					loghandle(fd, logchan, exitchan)
+					loghandle(fd, msg_chan, exitchan)
 					wg.Done()
 				}()
 			}
@@ -47,8 +46,8 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	wg.Wait()
 }
 
-// receive log from tcp socket, encode json and send to logchan
-func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
+// receive log from tcp socket, encode json and send to msg_chan
+func loghandle(fd net.Conn, msg_chan chan *logplex.Msg, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
@@ -67,15 +66,7 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			if *enable_json {
-				if msg_json, err := json.Marshal(msg); err == nil {
-					logchan <- msg_json
-				} else {
-					log.Println("json:", err)
-				}
-			} else {
-				logchan <- msg.Msg
-			}
+			msg_chan <- msg
 		}
 	}()
 	<-exitchan

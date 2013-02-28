@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"github.com/datastream/logplex"
 	"io"
 	"log"
@@ -11,7 +10,7 @@ import (
 )
 
 // udp_server
-func run_udp_server(port string, logchan chan []byte, exitchan chan int) {
+func run_udp_server(port string, msg_chan chan *logplex.Msg, exitchan chan int) {
 	udp_addr, err := net.ResolveUDPAddr("udp", port)
 	if err != nil {
 		log.Fatal("udp:", err)
@@ -40,15 +39,7 @@ func run_udp_server(port string, logchan chan []byte, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			if *enable_json {
-				if msg_json, err := json.Marshal(msg); err == nil {
-					logchan <- msg_json
-				} else {
-					log.Println("json:", err)
-				}
-			} else {
-				logchan <- msg.Msg
-			}
+			msg_chan <- msg
 		}
 	}()
 	<-exitchan
