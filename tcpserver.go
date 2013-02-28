@@ -78,5 +78,5 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 			}
 		}
 	}()
-	_, _ = <-exitchan
+	<-exitchan
 }

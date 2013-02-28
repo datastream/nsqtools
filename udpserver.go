@@ -51,5 +51,5 @@ func run_udp_server(port string, logchan chan []byte, exitchan chan int) {
 			}
 		}
 	}()
-	_, _ = <-exitchan
+	<-exitchan
 }

@@ -103,7 +103,7 @@ func (this *NsqdClient) message_handler(topic string, logchan chan []byte, exitc
 	var batch [][]byte
 	for {
 		select {
-		case _, _ = <-exitchan:
+		case <-exitchan:
 			cmd, _ := nsq.MultiPublish(topic, batch)
 			cmd.Write(rwbuf)
 			rwbuf.Flush()
