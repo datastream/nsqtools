@@ -12,17 +12,18 @@ import (
 	"time"
 )
 
-type NsqdServer struct {
-	Conn     net.Conn
+type NsqdClient struct {
+	net.Conn
 	NsqdAddr string
-	Exitchan chan int
 }
 
 // lookup allo nsqd node, send nsqd node via nsqd_ch
 func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []byte, exitchan chan int) {
 	ticker := time.NewTicker(30 * time.Second)
 	var list_lock sync.Mutex
-	nsqd_list := make(map[string]*NsqdServer)
+	nsqd_list := make(map[string]*NsqdClient)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
 		for {
 			for _, addr := range lookupdaddrs {
@@ -31,16 +32,16 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 					if _, ok := nsqd_list[nsqd]; ok {
 						continue
 					}
-					n := &NsqdServer{
+					n := &NsqdClient{
 						NsqdAddr: nsqd,
-						Exitchan: make(chan int),
 					}
 					list_lock.Lock()
 					nsqd_list[n.NsqdAddr] = n
 					list_lock.Unlock()
 					go func() {
+						wg.Add(1)
 						for {
-							err := n.message_handler(topic, logchan)
+							err := n.message_handler(topic, logchan, exitchan)
 							if err == nil {
 								break
 							}
@@ -49,6 +50,7 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 						delete(nsqd_list, n.NsqdAddr)
 						list_lock.Unlock()
 						log.Println("disconnect:", n.NsqdAddr)
+						wg.Done()
 					}()
 					log.Println("connect", nsqd)
 				}
@@ -56,13 +58,13 @@ func connect_nsqd_cluster(lookupdaddrs []string, topic string, logchan chan []by
 			<-ticker.C
 		}
 	}()
-	<-exitchan
-	ticker.Stop()
-	list_lock.Lock()
-	for _, v := range nsqd_list {
-		v.Exitchan <- 1
+	_, ok := <-exitchan
+	if !ok {
+		ticker.Stop()
+		wg.Done()
+		wg.Wait()
 	}
-	list_lock.Unlock()
+
 }
 
 //lookup nsqd from lookupd server
@@ -88,7 +90,7 @@ func get_nsqd_list(lookupaddr string) []string {
 }
 
 // send msg to nsqd node
-func (this *NsqdServer) message_handler(topic string, logchan chan []byte) error {
+func (this *NsqdClient) message_handler(topic string, logchan chan []byte, exitchan chan int) error {
 	var err error
 	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
 	if err != nil {
@@ -101,7 +103,7 @@ func (this *NsqdServer) message_handler(topic string, logchan chan []byte) error
 	var batch [][]byte
 	for {
 		select {
-		case <-this.Exitchan:
+		case _, _ = <-exitchan:
 			cmd, _ := nsq.MultiPublish(topic, batch)
 			cmd.Write(rwbuf)
 			rwbuf.Flush()

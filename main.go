@@ -30,9 +30,9 @@ func main() {
 	go func() {
 		<-termchan
 		wg.Done()
-		exittcp <- 1
-		exitudp <- 1
-		exitnsq <- 1
+		close(exittcp)
+		close(exitudp)
+		close(exitnsq)
 	}()
 	logchan := make(chan []byte)
 	// tcp server

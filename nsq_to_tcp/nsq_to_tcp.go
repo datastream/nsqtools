@@ -20,13 +20,21 @@ var (
 	port             = flag.String("port", ":1514", "log send port")
 )
 
+type Msg struct {
+	Body []byte
+	Stat chan error
+}
 type MsgHandler struct {
-	msg_chan chan []byte
+	msg_chan chan Msg
 }
 
 func (this *MsgHandler) HandleMessage(m *nsq.Message) error {
-	this.msg_chan <- m.Body
-	return nil
+	msg := Msg{
+		Body: m.Body,
+		Stat: make(chan error),
+	}
+	this.msg_chan <- msg
+	return <-msg.Stat
 }
 
 func main() {
@@ -47,7 +55,7 @@ func main() {
 		log.Fatalf(err.Error())
 	}
 	r.SetMaxInFlight(*maxInFlight)
-	msg_handler := MsgHandler{make(chan []byte)}
+	msg_handler := MsgHandler{make(chan Msg)}
 	r.AddHandler(&msg_handler)
 	lookupdlist := strings.Split(*lookupdHTTPAddrs, ",")
 	exitchan := make(chan int)
@@ -71,7 +79,7 @@ func main() {
 	time.Sleep(time.Second)
 }
 
-func tcp_server(port string, logchan chan []byte, exitchan chan int) {
+func tcp_server(port string, msg_chan chan Msg, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
@@ -89,7 +97,7 @@ func tcp_server(port string, logchan chan []byte, exitchan chan int) {
 				log.Fatal("accept error", err)
 				time.Sleep(time.Second)
 			} else {
-				go send_log(fd, logchan)
+				go send_log(fd, msg_chan)
 			}
 		}
 	}()
@@ -98,17 +106,17 @@ func tcp_server(port string, logchan chan []byte, exitchan chan int) {
 	log.Println("tcp server closed")
 }
 
-func send_log(fd net.Conn, logchan chan []byte) {
+func send_log(fd net.Conn, msg_chan chan Msg) {
 	defer fd.Close()
 	var err error
 	for {
-		msg, ok := <-logchan
+		msg, ok := <-msg_chan
 		if !ok {
 			break
 		}
-		_, err = fd.Write(msg)
+		_, err = fd.Write(msg.Body)
+		msg.Stat <- err
 		if err != nil {
-			logchan <- msg
 			log.Println(err)
 			break
 		}

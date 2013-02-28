@@ -19,10 +19,8 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 		log.Fatal("server bind failed:", err)
 		return
 	}
-	client_count := 0
-	client_exit := make(chan int)
-	var client_lock sync.Mutex
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
 		for {
 			fd, err := server.Accept()
@@ -37,25 +35,15 @@ func run_tcp_server(port string, logchan chan []byte, exitchan chan int) {
 			} else {
 				go func() {
 					wg.Add(1)
-					client_lock.Lock()
-					client_count++
-					client_lock.Unlock()
-					loghandle(fd, logchan, client_exit)
-					client_lock.Lock()
-					client_count--
-					client_lock.Unlock()
+					loghandle(fd, logchan, exitchan)
 					wg.Done()
 				}()
 			}
 		}
 	}()
-	<-exitchan
+	_, _ = <-exitchan
 	server.Close()
-	client_lock.Lock()
-	for i := 0; i < client_count; i++ {
-		client_exit <- 1
-	}
-	client_lock.Unlock()
+	wg.Done()
 	wg.Wait()
 }
 
@@ -90,5 +78,5 @@ func loghandle(fd net.Conn, logchan chan []byte, exitchan chan int) {
 			}
 		}
 	}()
-	<-exitchan
+	_, _ = <-exitchan
 }
