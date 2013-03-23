@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"github.com/datastream/logplex"
 	"io"
 	"log"
@@ -12,7 +13,7 @@ import (
 )
 
 // tcp_server
-func run_tcp_server(port string, msg_chan chan *logplex.Msg, exitchan chan int) {
+func run_tcp_server(port string, w *Writer, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
@@ -34,7 +35,7 @@ func run_tcp_server(port string, msg_chan chan *logplex.Msg, exitchan chan int) 
 			} else {
 				go func() {
 					wg.Add(1)
-					loghandle(fd, msg_chan, exitchan)
+					loghandle(fd, w, exitchan)
 					wg.Done()
 				}()
 			}
@@ -47,7 +48,7 @@ func run_tcp_server(port string, msg_chan chan *logplex.Msg, exitchan chan int) 
 }
 
 // receive log from tcp socket, encode json and send to msg_chan
-func loghandle(fd net.Conn, msg_chan chan *logplex.Msg, exitchan chan int) {
+func loghandle(fd net.Conn, w *Writer, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
@@ -66,7 +67,25 @@ func loghandle(fd net.Conn, msg_chan chan *logplex.Msg, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			msg_chan <- msg
+			var msg_body []byte
+			if *enable_json {
+				if b, err := json.Marshal(msg); err != nil {
+					msg_body = b
+				} else {
+					log.Println(err)
+					continue
+				}
+			} else {
+				msg_body = msg.Msg
+			}
+			if len(msg.AppName) > 0 {
+				err = w.Write(string(msg.AppName), msg_body)
+			} else {
+				err = w.Write("misc", msg_body)
+			}
+			if err != nil {
+				log.Println("Write NSQ error", err)
+			}
 		}
 	}()
 	<-exitchan

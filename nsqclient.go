@@ -3,151 +3,164 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"github.com/bitly/nsq/nsq"
-	"github.com/datastream/logplex"
 	"log"
 	"net"
-	"strconv"
-	"sync"
 	"time"
 )
 
-type NsqdClient struct {
+// define internal write message struct
+type WMessage struct {
+	Topic string
+	Body  interface{}
+	Stat  chan error
+}
+
+// may be should add more info in writer
+type Writer struct {
+	MessageChan chan WMessage
 	net.Conn
-	NsqdAddr string
+	islive bool
 }
 
-// lookup allo nsqd node, send nsqd node via nsqd_ch
-func connect_nsqd_cluster(lookupdaddrs []string, msg_chan chan *logplex.Msg, exitchan chan int) {
-	var list_lock sync.Mutex
-	nsqd_list := make(map[string]*NsqdClient)
-	var wg sync.WaitGroup
-	nsqs := make(chan []string)
-	for _, addr := range lookupdaddrs {
-		go get_nsqd_list(addr, nsqs)
+func NewWriter(addr string) *Writer {
+	this := &Writer{
+		MessageChan: make(chan WMessage),
 	}
-	for {
-		select {
-		case <-exitchan:
-			wg.Wait()
-			return
-		case nsqd_servers := <-nsqs:
-			for _, nsqd := range nsqd_servers {
-				if _, ok := nsqd_list[nsqd]; ok {
-					continue
-				}
-				n := &NsqdClient{
-					NsqdAddr: nsqd,
-				}
-				list_lock.Lock()
-				nsqd_list[n.NsqdAddr] = n
-				list_lock.Unlock()
-				go func() {
-					wg.Add(1)
-					for {
-						err := n.message_handler(msg_chan)
-						if err == nil {
-							break
-						} else {
-							log.Println(err)
-						}
-					}
-					list_lock.Lock()
-					delete(nsqd_list, n.NsqdAddr)
-					list_lock.Unlock()
-					log.Println("disconnect:", n.NsqdAddr)
-					wg.Done()
-				}()
-			}
-		}
-	}
+	this.islive = true
+	go this.NewWriteLoop(addr)
+	return this
 }
 
-//lookup nsqd from lookupd server
-func get_nsqd_list(lookupaddr string, nsqs chan []string) {
-	ticker := time.NewTicker(30 * time.Second)
-	for {
-		var nsqd_list []string
-		endpoint := fmt.Sprintf("http://%s/nodes", lookupaddr)
-		log.Printf("LOOKUPD: querying %s", endpoint)
-		data, err := nsq.ApiRequest(endpoint)
-		if err != nil {
-			log.Printf("ERROR: lookupd %s - %s\n", endpoint, err.Error())
-		} else {
-			producers := data.Get("producers")
-			producersArray, _ := producers.Array()
-			for i, _ := range producersArray {
-				producer := producers.GetIndex(i)
-				address := producer.Get("address").MustString()
-				tcpPort := producer.Get("tcp_port").MustInt()
-				port := strconv.Itoa(tcpPort)
-				nsqd_list = append(nsqd_list, address+":"+port)
-			}
-		}
-		nsqs <- nsqd_list
-		<-ticker.C
-	}
+// stop writerloop
+func (this *Writer) Stop() {
+	close(this.MessageChan)
 }
 
-// send msg to nsqd node
-func (this *NsqdClient) message_handler(msg_chan chan *logplex.Msg) error {
-	var err error
-	this.Conn, err = net.DialTimeout("tcp", this.NsqdAddr, time.Second)
+// body should be []byte or [][]byte
+func (this *Writer) Write(topic string, body interface{}) error {
+	msg := WMessage{
+		Topic: topic,
+		Body:  body,
+		Stat:  make(chan error),
+	}
+	if !this.islive {
+		return errors.New("WriteLoop exited")
+	}
+	this.MessageChan <- msg
+	err := <-msg.Stat
 	if err != nil {
-		log.Println("connect failed:", err)
+		if err.Error() != "Body not acceptable" {
+			this.MessageChan <- msg
+			err = <-msg.Stat
+		}
+	}
+	return err
+}
+
+// if client can't connect nsqd, just exit loop. User should change nsqd_address or just recall NewWriteLoop()
+func (this *Writer) NewWriteLoop(addr string) {
+	go this.heartbeat()
+	for {
+		log.Println("Start WriteLoop")
+		if this.islive {
+			if err := this.writeloop(addr); err != nil {
+				log.Println(err)
+			}
+		} else {
+			break
+		}
+		log.Println("WriterLoop stopped")
+	}
+}
+
+// write loop until tcp error
+func (this *Writer) writeloop(addr string) error {
+	var err error
+	this.Conn, err = net.DialTimeout("tcp", addr, time.Second*5)
+	if err != nil {
+		this.islive = false
 		return err
 	}
 	defer this.Conn.Close()
 	this.Conn.Write(nsq.MagicV2)
-	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn), bufio.NewWriter(this.Conn))
-	var topic string
-	var msg_body []byte
+	rwbuf := bufio.NewReadWriter(bufio.NewReader(this.Conn),
+		bufio.NewWriter(this.Conn))
 	for {
-		msg, ok := <-msg_chan
+		msg, ok := <-this.MessageChan
+		isnop := false
 		if !ok {
+			this.islive = false
 			break
 		}
-		if len(msg.AppName) == 0 {
-			topic = "misc"
-		} else {
-			topic = string(msg.AppName)
+		var cmd *nsq.Command
+		switch msg.Body.(type) {
+		case []byte:
+			cmd = nsq.Publish(msg.Topic, msg.Body.([]byte))
+		case [][]byte:
+			cmd, err = nsq.MultiPublish(msg.Topic, msg.Body.([][]byte))
+		case error:
+			cmd = nsq.Nop()
+			isnop = true
+		default:
+			msg.Stat <- errors.New("Body not acceptable")
+			continue
 		}
-		if *enable_json {
-			if b, err := json.Marshal(msg); err != nil {
-				msg_body = b
-			} else {
-				log.Println(err)
-				continue
-			}
-		} else {
-			msg_body = msg.Msg
+		if err != nil {
+			msg.Stat <- err
+			break
 		}
-		cmd := nsq.Publish(topic, msg_body)
-		if err := cmd.Write(rwbuf); err != nil {
+		if err = cmd.Write(rwbuf); err != nil {
 			log.Println("write buf error", err)
-			return err
+			msg.Stat <- err
+			break
 		}
 		if err = rwbuf.Flush(); err != nil {
 			log.Println("flush buf error", err)
-			return err
+			msg.Stat <- err
+			break
+		}
+		if isnop {
+			msg.Stat <- nil
+			continue
 		}
 		resp, err := nsq.ReadResponse(rwbuf)
 		if err != nil {
 			log.Println("failed to read response", err)
-			return err
+			msg.Stat <- err
+			break
 		}
 		_, data, err := nsq.UnpackResponse(resp)
 		if err != nil {
 			log.Println("unpack failed", err)
+			msg.Stat <- err
 			continue
 		}
-		if !bytes.Equal(data, []byte("OK")) && !bytes.Equal(data, []byte("_heartbeat_")) {
-			log.Println("response not ok",
-				string(data))
-			continue
+		if !bytes.Equal(data, []byte("OK")) &&
+			!bytes.Equal(data, []byte("_heartbeat_")) {
+			log.Println("response not ok", string(data))
+			err = errors.New(string(data))
 		}
+		msg.Stat <- err
 	}
 	return nil
+}
+
+// send nop every 30s
+func (this *Writer) heartbeat() {
+	tick := time.Tick(time.Second * 30)
+	for {
+		<-tick
+		if !this.islive {
+			break
+		}
+		msg := WMessage{
+			Topic: "",
+			Body:  errors.New(""),
+			Stat:  make(chan error),
+		}
+		this.MessageChan <- msg
+		<-msg.Stat
+	}
 }
