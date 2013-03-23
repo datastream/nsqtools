@@ -35,6 +35,8 @@ func NewWriter(addr string) *Writer {
 
 // stop writerloop
 func (this *Writer) Stop() {
+	this.islive = false
+	time.Sleep(time.Second)
 	close(this.MessageChan)
 }
 
@@ -46,7 +48,7 @@ func (this *Writer) Write(topic string, body interface{}) error {
 		Stat:  make(chan error),
 	}
 	if !this.islive {
-		return errors.New("WriteLoop exited")
+		return errors.New("Write Stopped")
 	}
 	this.MessageChan <- msg
 	err := <-msg.Stat
@@ -80,7 +82,6 @@ func (this *Writer) writeloop(addr string) error {
 	var err error
 	this.Conn, err = net.DialTimeout("tcp", addr, time.Second*5)
 	if err != nil {
-		this.islive = false
 		return err
 	}
 	defer this.Conn.Close()
@@ -91,7 +92,6 @@ func (this *Writer) writeloop(addr string) error {
 		msg, ok := <-this.MessageChan
 		isnop := false
 		if !ok {
-			this.islive = false
 			break
 		}
 		var cmd *nsq.Command
