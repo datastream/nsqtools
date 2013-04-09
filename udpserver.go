@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"github.com/datastream/logplex"
+	"github.com/datastream/nsq/nsq"
 	"io"
 	"log"
 	"net"
@@ -11,7 +12,7 @@ import (
 )
 
 // udp_server
-func run_udp_server(port string, w *Writer, exitchan chan int) {
+func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 	udp_addr, err := net.ResolveUDPAddr("udp", port)
 	if err != nil {
 		log.Fatal("udp:", err)
@@ -51,11 +52,14 @@ func run_udp_server(port string, w *Writer, exitchan chan int) {
 			} else {
 				msg_body = msg.Msg
 			}
+			var topic string
 			if len(msg.AppName) > 0 {
-				err = w.Write(string(msg.AppName), msg_body)
+				topic = string(msg.AppName)
 			} else {
-				err = w.Write("misc", msg_body)
+				topic = "misc"
 			}
+			cmd := nsq.Publish(topic, msg_body)
+			_, _, err = w.Write(cmd)
 			if err != nil {
 				log.Println("Write NSQ error", err)
 			}

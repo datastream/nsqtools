@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"github.com/datastream/logplex"
+	"github.com/datastream/nsq/nsq"
 	"io"
 	"log"
 	"net"
@@ -13,7 +14,7 @@ import (
 )
 
 // tcp_server
-func run_tcp_server(port string, w *Writer, exitchan chan int) {
+func run_tcp_server(port string, w *nsq.Writer, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
@@ -48,7 +49,7 @@ func run_tcp_server(port string, w *Writer, exitchan chan int) {
 }
 
 // receive log from tcp socket, encode json and send to msg_chan
-func loghandle(fd net.Conn, w *Writer, exitchan chan int) {
+func loghandle(fd net.Conn, w *nsq.Writer, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
@@ -78,11 +79,14 @@ func loghandle(fd net.Conn, w *Writer, exitchan chan int) {
 			} else {
 				msg_body = msg.Msg
 			}
+			var topic string
 			if len(msg.AppName) > 0 {
-				err = w.Write(string(msg.AppName), msg_body)
+				topic = string(msg.AppName)
 			} else {
-				err = w.Write("misc", msg_body)
+				topic = "misc"
 			}
+			cmd := nsq.Publish(topic, msg_body)
+			_, _, err = w.Write(cmd)
 			if err != nil {
 				log.Println("Write NSQ error", err)
 			}
