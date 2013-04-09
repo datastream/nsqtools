@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/datastream/nsq/nsq"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,13 +19,10 @@ func main() {
 	termchan := make(chan os.Signal, 1)
 	stop_accept := make(chan int)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
-	w := nsq.NewWriter()
-	w.ConnectToNSQ(*nsq_address)
 	// tcp server
-	go run_tcp_server(*port, w, stop_accept)
+	go run_tcp_server(*port, stop_accept)
 	// udp server
-	go run_udp_server(*port, w, stop_accept)
+	go run_udp_server(*port, stop_accept)
 	<-termchan
 	close(stop_accept)
-	w.Stop()
 }

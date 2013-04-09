@@ -14,12 +14,12 @@ import (
 )
 
 // tcp_server
-func run_tcp_server(port string, w *nsq.Writer, exitchan chan int) {
+func run_tcp_server(port string, exitchan chan int) {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
-		return
 	}
+	defer server.Close()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -36,23 +36,29 @@ func run_tcp_server(port string, w *nsq.Writer, exitchan chan int) {
 			} else {
 				go func() {
 					wg.Add(1)
-					loghandle(fd, w, exitchan)
+					loghandle(fd, exitchan)
 					wg.Done()
 				}()
 			}
 		}
 	}()
-	_, _ = <-exitchan
-	server.Close()
+	<-exitchan
 	wg.Done()
 	wg.Wait()
 }
 
 // receive log from tcp socket, encode json and send to msg_chan
-func loghandle(fd net.Conn, w *nsq.Writer, exitchan chan int) {
+func loghandle(fd net.Conn, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
 	reader := logplex.NewReader(rbuf)
+	w := nsq.NewWriter()
+	err := w.ConnectToNSQ(*nsq_address)
+	if err != nil {
+		log.Println("tcp to nsq:", err)
+		return
+	}
+	defer w.Stop()
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
@@ -89,6 +95,7 @@ func loghandle(fd net.Conn, w *nsq.Writer, exitchan chan int) {
 			_, _, err = w.Write(cmd)
 			if err != nil {
 				log.Println("Write NSQ error", err)
+				break
 			}
 		}
 	}()

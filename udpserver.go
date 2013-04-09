@@ -12,20 +12,25 @@ import (
 )
 
 // udp_server
-func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
+func run_udp_server(port string, exitchan chan int) {
 	udp_addr, err := net.ResolveUDPAddr("udp", port)
 	if err != nil {
 		log.Fatal("udp:", err)
-		return
 	}
 	server, err := net.ListenUDP("udp", udp_addr)
-	defer server.Close()
 	if err != nil {
 		log.Fatal("server bind failed:", err)
-		return
 	}
+	defer server.Close()
+	w := nsq.NewWriter()
+	err = w.ConnectToNSQ(*nsq_address)
+	if err != nil {
+		log.Fatal("nsq error", err)
+	}
+	defer w.Stop()
 	rbuf := bufio.NewReader(server)
 	reader := logplex.NewReader(rbuf)
+	nsqerrchan := make(chan int)
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
@@ -61,9 +66,17 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 			cmd := nsq.Publish(topic, msg_body)
 			_, _, err = w.Write(cmd)
 			if err != nil {
+				nsqerrchan <- 1
 				log.Println("Write NSQ error", err)
 			}
 		}
 	}()
-	<-exitchan
+	for {
+		select {
+		case <-nsqerrchan:
+			w.ConnectToNSQ(*nsq_address)
+		case <-exitchan:
+			return
+		}
+	}
 }
