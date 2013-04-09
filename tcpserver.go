@@ -59,6 +59,7 @@ func loghandle(fd net.Conn, exitchan chan int) {
 		return
 	}
 	defer w.Stop()
+	localexit := make(chan int)
 	go func() {
 		for {
 			msg, err := reader.ReadMsg()
@@ -98,6 +99,10 @@ func loghandle(fd net.Conn, exitchan chan int) {
 				break
 			}
 		}
+		localexit <- 1
 	}()
-	<-exitchan
+	select {
+	case <-localexit:
+	case <-exitchan:
+	}
 }
