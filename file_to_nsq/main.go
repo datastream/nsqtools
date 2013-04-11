@@ -92,6 +92,10 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 		return
 	}
 	defer fd.Close()
+	_, err = fd.Seek(offset, 0)
+	if err != nil {
+		fd.Seek(0, 0)
+	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second * 10)
 	for {
@@ -104,7 +108,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			log.Println("READ EOF")
 			size0, err := fd.Seek(0, 1)
 			if err != nil {
-				log.Println(er)
+				log.Println("fail to read current offset", err)
 				return
 			}
 			fd, err = os.Open(file)
