@@ -107,7 +107,6 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			time.Sleep(time.Second*10)
-			log.Println("retry")
 			line, err = reader.ReadString('\n')
 		}
 		if err == io.EOF {
