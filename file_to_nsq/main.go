@@ -96,19 +96,25 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	tick := time.Tick(time.Second * 10)
 	for {
 		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Println("retry")
+			line, err = reader.ReadString('\n')
+		}
 		if err == io.EOF {
-			size0, er := fd.Seek(0, 1)
-			if er != nil {
+			log.Println("READ EOF")
+			size0, err := fd.Seek(0, 1)
+			if err != nil {
 				log.Println(er)
 				return
 			}
 			fd, err = os.Open(file)
 			if err != nil {
-				log.Println(err)
+				log.Println("open failed", err)
 				return
 			}
 			_, err = fd.Seek(size0, 0)
 			if err != nil {
+				log.Println("reopen", file)
 				fd.Seek(0, 0)
 			}
 			reader = bufio.NewReader(fd)
@@ -132,6 +138,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			size, _ := fd.Seek(0, 1)
 			sync_stat(topic, size)
 			return
+		default:
 		}
 	}
 }
