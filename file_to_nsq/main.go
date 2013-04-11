@@ -137,7 +137,6 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			log.Println(err)
 			return
 		}
-		line = line[:len(line)-1]
 		cmd := nsq.Publish(topic, []byte(line))
 		_, _, err = w.Write(cmd)
 		if err != nil {
