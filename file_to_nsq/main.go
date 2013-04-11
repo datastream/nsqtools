@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -34,13 +35,16 @@ func main() {
 	}
 	exitchan := make(chan int)
 	offset := read_stat(setting)
+	var wg sync.WaitGroup
 	for k, v := range setting {
 		go read_log(v, offset[k], k, w, exitchan)
+		wg.Add(1)
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan
 	close(exitchan)
+	wg.Done()
 }
 
 func read_stat(setting map[string]string) map[string]int64 {
@@ -106,7 +110,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			time.Sleep(time.Second*10)
+			time.Sleep(time.Second * 10)
 			line, err = reader.ReadString('\n')
 		}
 		if err == io.EOF {
