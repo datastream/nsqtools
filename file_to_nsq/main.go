@@ -92,9 +92,14 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 		return
 	}
 	defer fd.Close()
-	_, err = fd.Seek(offset, 0)
+	size, err := fd.Seek(0, 2)
 	if err != nil {
+		return
+	}
+	if size < offset {
 		fd.Seek(0, 0)
+	} else {
+		fd.Seek(offset, 0)
 	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second * 10)
@@ -116,10 +121,14 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 				log.Println("open failed", err)
 				return
 			}
-			_, err = fd.Seek(size0, 0)
+			size1, err := fd.Seek(0, 2)
 			if err != nil {
-				log.Println("reopen", file)
+				log.Println(err)
+			}
+			if size1 < size0 {
 				fd.Seek(0, 0)
+			} else {
+				fd.Seek(size0, 0)
 			}
 			reader = bufio.NewReader(fd)
 			continue
