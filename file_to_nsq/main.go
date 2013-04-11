@@ -106,6 +106,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			time.Sleep(time.Second*10)
 			log.Println("retry")
 			line, err = reader.ReadString('\n')
 		}
@@ -113,7 +114,6 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			log.Println("READ EOF")
 			size0, err := fd.Seek(0, 1)
 			if err != nil {
-				log.Println("fail to read current offset", err)
 				return
 			}
 			fd, err = os.Open(file)
