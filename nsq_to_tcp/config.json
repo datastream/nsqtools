@@ -1,0 +1,7 @@
+{
+    "topics":"web,storage",
+    "channel":"test_case",
+    "maxinflight":"200",
+    "lookupdHTTPAddrs":"127.0.0.1:4161",
+    "port":"0.0.0.0:1234"
+}
