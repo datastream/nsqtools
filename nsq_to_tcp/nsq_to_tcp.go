@@ -20,9 +20,8 @@ var (
 )
 
 type Msg struct {
-	Topic string
-	Body  []byte
-	Stat  chan error
+	Body []byte
+	Stat chan error
 }
 type MsgHandler struct {
 	Topic    string
@@ -31,10 +30,9 @@ type MsgHandler struct {
 
 func (this *MsgHandler) HandleMessage(m *nsq.Message) error {
 	msg := Msg{
-		Topic: this.Topic,
-		Body:  m.Body,
-		Stat:  make(chan error),
+		Stat: make(chan error),
 	}
+	msg.Body = append([]byte(this.Topic+": "), m.Body...)
 	this.msg_chan <- msg
 	return <-msg.Stat
 }
