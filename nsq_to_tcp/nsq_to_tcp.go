@@ -17,7 +17,6 @@ import (
 
 var (
 	conf_file = flag.String("conf", "config.json", "config file")
-	port      = flag.String("port", ":1514", "log send port")
 )
 
 type Msg struct {
