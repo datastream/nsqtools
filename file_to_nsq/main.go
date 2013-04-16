@@ -20,6 +20,7 @@ import (
 var (
 	conf_file   = flag.String("conf", "config.json", "config file")
 	nsq_address = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
+	nsq_conns   = flag.Int("max", 5, "nsq connections")
 )
 
 func main() {
@@ -36,7 +37,7 @@ func main() {
 		go read_log(v, offset[k], k, cmdchan, exitchan)
 		wg.Add(1)
 	}
-	for i := 0; i < 5; i ++ {
+	for i := 0; i < *nsq_conns; i++ {
 		w := nsq.NewWriter()
 		err := w.ConnectToNSQ(*nsq_address)
 		if err != nil {
