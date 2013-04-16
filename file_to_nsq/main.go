@@ -118,7 +118,8 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			return
 		default:
 			line, err := reader.ReadString('\n')
-			if err != nil {
+			if err == io.EOF {
+				time.Sleep(time.Second)
 				line, err = reader.ReadString('\n')
 			}
 			if err == io.EOF {
