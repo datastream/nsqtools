@@ -107,45 +107,8 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second * 10)
+	var lines [][]byte
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			time.Sleep(time.Second * 10)
-			line, err = reader.ReadString('\n')
-		}
-		if err == io.EOF {
-			log.Println("READ EOF")
-			size0, err := fd.Seek(0, 1)
-			if err != nil {
-				return
-			}
-			fd, err = os.Open(file)
-			if err != nil {
-				log.Println("open failed", err)
-				return
-			}
-			size1, err := fd.Seek(0, 2)
-			if err != nil {
-				log.Println(err)
-			}
-			if size1 < size0 {
-				fd.Seek(0, 0)
-			} else {
-				fd.Seek(size0, 0)
-			}
-			reader = bufio.NewReader(fd)
-			continue
-		}
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		cmd := nsq.Publish(topic, []byte(line))
-		_, _, err = w.Write(cmd)
-		if err != nil {
-			log.Println("NSQ writer", err)
-			w.ConnectToNSQ(*nsq_address)
-		}
 		select {
 		case <-tick:
 			size, _ := fd.Seek(0, 1)
@@ -155,6 +118,47 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			sync_stat(topic, size)
 			return
 		default:
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				line, err = reader.ReadString('\n')
+			}
+			if err == io.EOF {
+				log.Println("READ EOF")
+				size0, err := fd.Seek(0, 1)
+				if err != nil {
+					return
+				}
+				fd, err = os.Open(file)
+				if err != nil {
+					log.Println("open failed", err)
+					return
+				}
+				size1, err := fd.Seek(0, 2)
+				if err != nil {
+					log.Println(err)
+				}
+				if size1 < size0 {
+					fd.Seek(0, 0)
+				} else {
+					fd.Seek(size0, 0)
+				}
+				reader = bufio.NewReader(fd)
+				continue
+			}
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			lines = append(lines, []byte(line))
+			if len(lines) > 50 {
+				cmd, _ := nsq.MultiPublish(topic, lines)
+				_, _, err = w.Write(cmd)
+				if err != nil {
+					log.Println("NSQ writer", err)
+					w.ConnectToNSQ(*nsq_address)
+				}
+				lines = lines[:0]
+			}
 		}
 	}
 }
