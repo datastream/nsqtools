@@ -107,7 +107,6 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second * 10)
-	var lines [][]byte
 	for {
 		select {
 		case <-tick:
@@ -149,16 +148,15 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 				log.Println(err)
 				return
 			}
-			lines = append(lines, []byte(line))
-			if len(lines) > 50 {
-				cmd, _ := nsq.MultiPublish(topic, lines)
-				_, _, err = w.Write(cmd)
-				if err != nil {
-					log.Println("NSQ writer", err)
-					w.ConnectToNSQ(*nsq_address)
-				}
-				lines = lines[:0]
-			}
+			go write(topic, []byte(line), w)
 		}
+	}
+}
+func write(topic string, body []byte, w *nsq.Writer) {
+	cmd := nsq.Publish(topic, body)
+	_, _, err := w.Write(cmd)
+	if err != nil {
+		log.Println("NSQ writer", err)
+		w.ConnectToNSQ(*nsq_address)
 	}
 }
