@@ -145,6 +145,7 @@ func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command
 					log.Println(err)
 				}
 				if size1 < size0 {
+					log.Println("switch log file")
 					fd.Seek(0, 0)
 				} else {
 					fd.Seek(size0, 0)
