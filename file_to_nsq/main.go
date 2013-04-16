@@ -24,11 +24,6 @@ var (
 
 func main() {
 	flag.Parse()
-	w := nsq.NewWriter()
-	err := w.ConnectToNSQ(*nsq_address)
-	if err != nil {
-		log.Fatal("fail to connect nsq", err)
-	}
 	setting, err := ReadConfig(*conf_file)
 	if err != nil {
 		log.Fatal("fail to read config", err)
@@ -36,9 +31,18 @@ func main() {
 	exitchan := make(chan int)
 	offset := read_stat(setting)
 	var wg sync.WaitGroup
+	cmdchan := make(chan *nsq.Command)
 	for k, v := range setting {
-		go read_log(v, offset[k], k, w, exitchan)
+		go read_log(v, offset[k], k, cmdchan, exitchan)
 		wg.Add(1)
+	}
+	for i := 0; i < 5; i ++ {
+		w := nsq.NewWriter()
+		err := w.ConnectToNSQ(*nsq_address)
+		if err != nil {
+			log.Fatal("fail to connect nsq", err)
+		}
+		go writerloop(cmdchan, w, exitchan)
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
@@ -89,7 +93,7 @@ func ReadConfig(file string) (map[string]string, error) {
 	return setting, nil
 }
 
-func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan chan int) {
+func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command, exitchan chan int) {
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -107,6 +111,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second * 10)
+	var body [][]byte
 	for {
 		select {
 		case <-tick:
@@ -123,7 +128,6 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 				line, err = reader.ReadString('\n')
 			}
 			if err == io.EOF {
-				log.Println("READ EOF")
 				size0, err := fd.Seek(0, 1)
 				if err != nil {
 					return
@@ -149,15 +153,25 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 				log.Println(err)
 				return
 			}
-			go write(topic, []byte(line), w)
+			body = append(body, []byte(line))
+			if len(body) > 100 {
+				cmd, _ := nsq.MultiPublish(topic, body)
+				cmdchan <- cmd
+				body = body[:0]
+			}
 		}
 	}
 }
-func write(topic string, body []byte, w *nsq.Writer) {
-	cmd := nsq.Publish(topic, body)
-	_, _, err := w.Write(cmd)
-	if err != nil {
-		log.Println("NSQ writer", err)
-		w.ConnectToNSQ(*nsq_address)
+func writerloop(cmdchan chan *nsq.Command, w *nsq.Writer, exitchan chan int) {
+	for {
+		select {
+		case cmd := <-cmdchan:
+			_, _, err := w.Write(cmd)
+			if err != nil {
+				w.ConnectToNSQ(*nsq_address)
+			}
+		case <-exitchan:
+			return
+		}
 	}
 }
