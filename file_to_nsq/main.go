@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,7 +35,7 @@ func main() {
 	var wg sync.WaitGroup
 	cmdchan := make(chan *nsq.Command)
 	for k, v := range setting {
-		go read_log(v, offset[k], k, cmdchan, exitchan)
+		go read_log(v, offset[v], k, cmdchan, exitchan)
 		wg.Add(1)
 	}
 	for i := 0; i < *nsq_conns; i++ {
@@ -54,19 +55,19 @@ func main() {
 
 func read_stat(setting map[string]string) map[string]int64 {
 	stat := make(map[string]int64)
-	for k, _ := range setting {
-		stat_file, err := os.Open(k)
+	for _, v := range setting {
+		stat_file, err := os.Open(strings.Replace(v, "/", "_", -1))
 		if err != nil {
-			stat[k] = 0
+			stat[v] = 0
 			continue
 		}
 		s, err := ioutil.ReadAll(stat_file)
 		if err != nil {
-			stat[k] = 0
+			stat[v] = 0
 			continue
 		}
-		i, err := strconv.ParseInt(string(s), 10, 64)
-		stat[k] = i
+		i, _ := strconv.ParseInt(string(s), 10, 64)
+		stat[v] = i
 	}
 	return stat
 }
@@ -111,16 +112,17 @@ func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command
 		fd.Seek(offset, 0)
 	}
 	reader := bufio.NewReader(fd)
-	tick := time.Tick(time.Second * 10)
+	tick := time.Tick(time.Second)
+	lock_file := strings.Replace(file, "/", "_", -1)
 	var body [][]byte
 	for {
 		select {
 		case <-tick:
 			size, _ := fd.Seek(0, 1)
-			sync_stat(topic, size)
+			sync_stat(lock_file, size)
 		case <-exitchan:
 			size, _ := fd.Seek(0, 1)
-			sync_stat(topic, size)
+			sync_stat(lock_file, size)
 			return
 		default:
 			line, err := reader.ReadString('\n')
