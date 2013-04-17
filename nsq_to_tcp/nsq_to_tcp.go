@@ -78,7 +78,6 @@ func main() {
 		r.Stop()
 	}
 	close(exitchan)
-	close(msg_chan)
 	log.Println("stop all")
 	time.Sleep(time.Second)
 }
@@ -115,7 +114,7 @@ func tcp_server(port string, msg_chan chan Msg, exitchan chan int) {
 				log.Fatal("accept error", err)
 				time.Sleep(time.Second)
 			} else {
-				go send_log(fd, msg_chan)
+				go send_log(fd, msg_chan, exitchan)
 			}
 		}
 	}()
@@ -124,19 +123,20 @@ func tcp_server(port string, msg_chan chan Msg, exitchan chan int) {
 	log.Println("tcp server closed")
 }
 
-func send_log(fd net.Conn, msg_chan chan Msg) {
+func send_log(fd net.Conn, msg_chan chan Msg, exitchan chan int) {
 	defer fd.Close()
 	var err error
 	for {
-		msg, ok := <-msg_chan
-		if !ok {
-			break
-		}
-		_, err = fd.Write(msg.Body)
-		msg.Stat <- err
-		if err != nil {
-			log.Println(err)
-			break
+		select {
+		case <-exitchan:
+			return
+		case msg := <-msg_chan:
+			_, err = fd.Write(msg.Body)
+			msg.Stat <- err
+			if err != nil {
+				log.Println(err)
+				return
+			}
 		}
 	}
 }
