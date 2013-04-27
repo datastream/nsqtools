@@ -135,6 +135,7 @@ func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command
 				if err != nil {
 					return
 				}
+				fd.Close()
 				fd, err = os.Open(file)
 				if err != nil {
 					log.Println("open failed", err)
