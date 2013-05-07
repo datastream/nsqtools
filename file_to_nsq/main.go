@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/datastream/nsq/nsq"
+	"github.com/bitly/nsq/nsq"
 	"io"
 	"io/ioutil"
 	"log"
@@ -21,7 +21,6 @@ import (
 var (
 	conf_file   = flag.String("conf", "config.json", "config file")
 	nsq_address = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
-	nsq_conns   = flag.Int("max", 5, "nsq connections")
 )
 
 func main() {
@@ -33,24 +32,23 @@ func main() {
 	exitchan := make(chan int)
 	offset := read_stat(setting)
 	var wg sync.WaitGroup
-	cmdchan := make(chan *nsq.Command)
 	for k, v := range setting {
-		go read_log(v, offset[v], k, cmdchan, exitchan)
-		wg.Add(1)
-	}
-	for i := 0; i < *nsq_conns; i++ {
-		w := nsq.NewWriter()
-		err := w.ConnectToNSQ(*nsq_address)
-		if err != nil {
-			log.Fatal("fail to connect nsq", err)
-		}
-		go writerloop(cmdchan, w, exitchan)
+		go func() {
+			wg.Add(1)
+			defer wg.Done()
+			w := nsq.NewWriter(0)
+			err := w.ConnectToNSQ(*nsq_address)
+			if err != nil {
+				log.Fatal("can't connect nsqd")
+			}
+			read_log(v, offset[v], k, w, *nsq_address, exitchan)
+		}()
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan
 	close(exitchan)
-	wg.Done()
+	wg.Wait()
 }
 
 func read_stat(setting map[string]string) map[string]int64 {
@@ -95,7 +93,7 @@ func ReadConfig(file string) (map[string]string, error) {
 	return setting, nil
 }
 
-func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command, exitchan chan int) {
+func read_log(file string, offset int64, topic string, w *nsq.Writer, nsqd_addr string, exitchan chan int) {
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -160,23 +158,11 @@ func read_log(file string, offset int64, topic string, cmdchan chan *nsq.Command
 			}
 			body = append(body, []byte(line))
 			if len(body) > 100 {
-				cmd, _ := nsq.MultiPublish(topic, body)
-				cmdchan <- cmd
-				body = body[:0]
+				_, _, err := w.MultiPublish(topic, body)
+				if err != nil {
+					w.ConnectToNSQ(nsqd_addr)
+				}
 			}
-		}
-	}
-}
-func writerloop(cmdchan chan *nsq.Command, w *nsq.Writer, exitchan chan int) {
-	for {
-		select {
-		case cmd := <-cmdchan:
-			_, _, err := w.Write(cmd)
-			if err != nil {
-				w.ConnectToNSQ(*nsq_address)
-			}
-		case <-exitchan:
-			return
 		}
 	}
 }
