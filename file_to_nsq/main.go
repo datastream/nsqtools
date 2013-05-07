@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -31,26 +30,19 @@ func main() {
 	}
 	exitchan := make(chan int)
 	offset := read_stat(setting)
-	var wg sync.WaitGroup
 	for k, v := range setting {
-		go func() {
-			wg.Add(1)
-			defer wg.Done()
-			w := nsq.NewWriter(0)
-			err := w.ConnectToNSQ(*nsq_address)
-			if err != nil {
-				log.Fatal("can't connect nsqd")
-			}
-			defer w.Stop()
-			log.Println("start read log", v)
-			read_log(v, offset[v], k, w, *nsq_address, exitchan)
-		}()
+		w := nsq.NewWriter(0)
+		err := w.ConnectToNSQ(*nsq_address)
+		if err != nil {
+			log.Fatal("can't connect nsqd")
+		}
+		go read_log(v, offset[v], k, w, *nsq_address, exitchan)
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan
 	close(exitchan)
-	wg.Wait()
+	time.Sleep(time.Second * 2)
 }
 
 func read_stat(setting map[string]string) map[string]int64 {
@@ -96,6 +88,8 @@ func ReadConfig(file string) (map[string]string, error) {
 }
 
 func read_log(file string, offset int64, topic string, w *nsq.Writer, nsqd_addr string, exitchan chan int) {
+	defer w.Stop()
+	log.Println("read logfile:", file)
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
