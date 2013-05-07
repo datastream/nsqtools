@@ -171,6 +171,7 @@ func read_log(file string, offset int64, topic string, msgchan chan *message, ex
 					body:  body,
 				}
 				msgchan <- msg
+				body = body[:0]
 			}
 		}
 	}
