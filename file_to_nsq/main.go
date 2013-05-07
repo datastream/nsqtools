@@ -20,7 +20,13 @@ import (
 var (
 	conf_file   = flag.String("conf", "config.json", "config file")
 	nsq_address = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
+	max         = flag.Int("max", 5, "nsq writer size")
 )
+
+type message struct {
+	topic string
+	body  [][]byte
+}
 
 func main() {
 	flag.Parse()
@@ -30,13 +36,20 @@ func main() {
 	}
 	exitchan := make(chan int)
 	offset := read_stat(setting)
+	msgchan := make(chan *message)
 	for k, v := range setting {
-		w := nsq.NewWriter(0)
-		err := w.ConnectToNSQ(*nsq_address)
 		if err != nil {
 			log.Fatal("can't connect nsqd")
 		}
-		go read_log(v, offset[v], k, w, *nsq_address, exitchan)
+		go read_log(v, offset[v], k, msgchan, exitchan)
+	}
+	for i := 0; i < *max; i++ {
+		w := nsq.NewWriter(0)
+		err := w.ConnectToNSQ(*nsq_address)
+		if err != nil {
+			log.Fatal(err)
+		}
+		go writeloop(w, *nsq_address, msgchan, exitchan)
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
@@ -87,8 +100,7 @@ func ReadConfig(file string) (map[string]string, error) {
 	return setting, nil
 }
 
-func read_log(file string, offset int64, topic string, w *nsq.Writer, nsqd_addr string, exitchan chan int) {
-	defer w.Stop()
+func read_log(file string, offset int64, topic string, msgchan chan *message, exitchan chan int) {
 	log.Println("read logfile:", file)
 	fd, err := os.Open(file)
 	if err != nil {
@@ -154,11 +166,26 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, nsqd_addr 
 			}
 			body = append(body, []byte(line))
 			if len(body) > 100 {
-				_, _, err := w.MultiPublish(topic, body)
-				if err != nil {
-					log.Println("write failed")
-					w.ConnectToNSQ(nsqd_addr)
+				msg := &message{
+					topic: topic,
+					body:  body,
 				}
+				msgchan <- msg
+			}
+		}
+	}
+}
+
+func writeloop(w *nsq.Writer, nsq_addr string, msgchan chan *message, exitchan chan int) {
+	defer w.Stop()
+	for {
+		select {
+		case <-exitchan:
+			return
+		case msg := <-msgchan:
+			_, _, err := w.MultiPublish(msg.topic, msg.body)
+			if err != nil {
+				w.ConnectToNSQ(nsq_addr)
 			}
 		}
 	}
