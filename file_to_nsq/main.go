@@ -41,6 +41,8 @@ func main() {
 			if err != nil {
 				log.Fatal("can't connect nsqd")
 			}
+			defer w.Stop()
+			log.Println("start read log", v)
 			read_log(v, offset[v], k, w, *nsq_address, exitchan)
 		}()
 	}
@@ -160,6 +162,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, nsqd_addr 
 			if len(body) > 100 {
 				_, _, err := w.MultiPublish(topic, body)
 				if err != nil {
+					log.Println("write failed")
 					w.ConnectToNSQ(nsqd_addr)
 				}
 			}
