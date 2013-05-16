@@ -186,7 +186,14 @@ func writeloop(w *nsq.Writer, nsq_addr string, msgchan chan *message, exitchan c
 		case msg := <-msgchan:
 			_, _, err := w.MultiPublish(msg.topic, msg.body)
 			if err != nil {
-				w.ConnectToNSQ(nsq_addr)
+				for {
+					err := w.ConnectToNSQ(nsq_addr)
+					if err == nil {
+						break
+					}
+					log.Println("retry", nsq_addr, err)
+					time.Sleep(time.Second)
+				}
 			}
 		}
 	}
