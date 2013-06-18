@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
@@ -20,6 +21,8 @@ import (
 var (
 	conf_file   = flag.String("conf", "config.json", "config file")
 	nsq_address = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
+	sampling    = flag.Int("sampling", 0, "sampling of log file")
+	ignoreold   = flag.Bool("without_old", true, "ignore old log")
 	max         = flag.Int("max", 5, "nsq writer size")
 )
 
@@ -102,6 +105,7 @@ func ReadConfig(file string) (map[string]string, error) {
 
 func read_log(file string, offset int64, topic string, msgchan chan *message, exitchan chan int) {
 	log.Println("read logfile:", file)
+	r := rand.New(rand.NewSource(99))
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -116,6 +120,9 @@ func read_log(file string, offset int64, topic string, msgchan chan *message, ex
 		fd.Seek(0, 0)
 	} else {
 		fd.Seek(offset, 0)
+	}
+	if *ignoreold {
+		fd.Seek(0, 2)
 	}
 	reader := bufio.NewReader(fd)
 	tick := time.Tick(time.Second)
@@ -163,6 +170,11 @@ func read_log(file string, offset int64, topic string, msgchan chan *message, ex
 			if err != nil {
 				log.Println(err)
 				return
+			}
+			if *sampling > 0 {
+				if r.Int()%*sampling > 0 {
+					continue
+				}
 			}
 			body = append(body, []byte(line))
 			if len(body) > 100 {
