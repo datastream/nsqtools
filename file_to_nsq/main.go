@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/bitly/nsq/nsq"
+	nsq "github.com/bitly/go-nsq"
 	"io"
 	"io/ioutil"
 	"log"
@@ -47,8 +47,7 @@ func main() {
 		go read_log(v, offset[v], k, msgchan, exitchan)
 	}
 	for i := 0; i < *max; i++ {
-		w := nsq.NewWriter(0)
-		err := w.ConnectToNSQ(*nsq_address)
+		w := nsq.NewWriter(*nsq_address)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -196,17 +195,7 @@ func writeloop(w *nsq.Writer, nsq_addr string, msgchan chan *message, exitchan c
 		case <-exitchan:
 			return
 		case msg := <-msgchan:
-			_, _, err := w.MultiPublish(msg.topic, msg.body)
-			if err != nil {
-				for {
-					err := w.ConnectToNSQ(nsq_addr)
-					if err == nil {
-						break
-					}
-					log.Println("retry", nsq_addr, err)
-					time.Sleep(time.Second)
-				}
-			}
+			w.MultiPublish(msg.topic, msg.body)
 		}
 	}
 }
