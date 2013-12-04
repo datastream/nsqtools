@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/bitly/go-nsq"
 	"github.com/datastream/logplex"
-	"github.com/datastream/nsq/nsq"
 	"io"
 	"log"
 	"net"
@@ -24,12 +24,13 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 	defer server.Close()
 	rbuf := bufio.NewReader(server)
 	reader := logplex.NewReader(rbuf)
-	go func() {
-		for {
+	for {
+		select {
+		case <-exitchan:
+			return
+		default:
 			msg, err := reader.ReadMsg()
-			if err != nil &&
-				strings.Contains(err.Error(),
-					"use of closed network connection") {
+			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 				break
 			}
 			if err == io.EOF {
@@ -40,29 +41,13 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 				continue
 			}
 			var msg_body []byte
-			if *enable_json {
-				if b, err := json.Marshal(msg); err != nil {
-					msg_body = b
-				} else {
-					log.Println(err)
-					continue
-				}
+			if b, err := json.Marshal(msg); err != nil {
+				msg_body = b
 			} else {
-				msg_body = msg.Msg
+				log.Println(err)
+				continue
 			}
-			var topic string
-			if len(msg.AppName) > 0 {
-				topic = string(msg.AppName)
-			} else {
-				topic = "misc"
-			}
-			cmd := nsq.Publish(topic, msg_body)
-			_, _, err = w.Write(cmd)
-			if err != nil {
-				w.ConnectToNSQ(*nsq_address)
-				log.Println("Write NSQ error", err)
-			}
+			w.Publish(logTopic, msg_body)
 		}
-	}()
-	<-exitchan
+	}
 }
