@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/bitly/nsq/nsq"
+	"github.com/bitly/nsq/go-nsq"
 	"io/ioutil"
 	"log"
 	"net"
