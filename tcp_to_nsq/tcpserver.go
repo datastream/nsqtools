@@ -66,7 +66,7 @@ func loghandle(fd net.Conn, w *nsq.Writer, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			w.Publish(topic, msg)
+			w.Publish(topic, []byte(msg))
 		}
 	}
 }

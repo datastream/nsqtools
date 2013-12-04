@@ -37,7 +37,7 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			w.Publish(topic, msg)
+			w.Publish(topic, []byte(msg))
 		}
 	}
 }
