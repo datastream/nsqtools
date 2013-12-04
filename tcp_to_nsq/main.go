@@ -13,7 +13,7 @@ var (
 	confFile = flag.String("conf", "config.json", "syslog2nsq config file")
 )
 
-var logTopic string
+var topic string
 
 func main() {
 	flag.Parse()
@@ -23,7 +23,7 @@ func main() {
 		log.Fatal("config parse error", err)
 	}
 	nsqdAddr, _ := c["nsqd_addr"]
-	logTopic, _ = c["log_topic"]
+	topic, _ = c["topic"]
 	tcpPort, _ := c["tcp_port"]
 	udpPort, _ := c["udp_port"]
 	termchan := make(chan os.Signal, 1)

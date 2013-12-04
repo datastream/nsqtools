@@ -2,9 +2,7 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"github.com/bitly/go-nsq"
-	"github.com/datastream/logplex"
 	"io"
 	"log"
 	"net"
@@ -52,31 +50,23 @@ func run_tcp_server(port string, w *nsq.Writer, exitchan chan int) {
 func loghandle(fd net.Conn, w *nsq.Writer, exitchan chan int) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
-	reader := logplex.NewReader(rbuf)
 	for {
 		select {
 		case <-exitchan:
 			return
 		default:
-			msg, err := reader.ReadMsg()
+			msg, err := rbuf.ReadString('\n')
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-				break
+				return
 			}
 			if err == io.EOF {
-				break
+				return
 			}
 			if err != nil {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			var msg_body []byte
-			if b, err := json.Marshal(msg); err != nil {
-				msg_body = b
-			} else {
-				log.Println(err)
-				continue
-			}
-			w.Publish(logTopic, msg_body)
+			w.Publish(topic, msg)
 		}
 	}
 }

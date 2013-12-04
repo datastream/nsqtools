@@ -1,5 +1,11 @@
-Accept syslog from tcp, then send to nsqd cluster.
+# nsq_to_tcp
 
-# Notice
+read data from nsqd, send out via tcp
 
-current it just support RSYSLOG_SyslogProtocol23Format, because i use https://github.com/datastream/logplex/.
+# file_to_nsq
+
+read file's data, send it to nsqd
+
+# tcp_to_nsq
+
+read data from tcp/udp, send it to nsqd
