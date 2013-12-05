@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"github.com/bitly/go-nsq"
 	"io"
 	"log"
@@ -20,13 +19,13 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 		log.Fatal("server bind failed:", err)
 	}
 	defer server.Close()
-	rbuf := bufio.NewReader(server)
+	buf := make([]byte, 8192)
 	for {
 		select {
 		case <-exitchan:
 			return
 		default:
-			msg, err := rbuf.ReadString('\n')
+			size, _, err := server.ReadFromUDP(buf)
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
@@ -34,10 +33,10 @@ func run_udp_server(port string, w *nsq.Writer, exitchan chan int) {
 				return
 			}
 			if err != nil {
-				log.Fatal("read log failed", err)
+				log.Println("read log failed", err)
 				continue
 			}
-			w.Publish(topic, []byte(msg))
+			w.Publish(topic, []byte(buf[:size]))
 		}
 	}
 }
