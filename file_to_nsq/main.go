@@ -4,15 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"github.com/bitly/go-nsq"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -30,45 +27,13 @@ func main() {
 		log.Fatal("fail to read config", err)
 	}
 	exitchan := make(chan int)
-	offset := read_stat(setting)
-	var wg sync.WaitGroup
 	for k, v := range setting {
-		go read_log(v, offset[k], k, w, exitchan)
-		wg.Add(1)
+		go readLog(v, k, w, exitchan)
 	}
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan
 	close(exitchan)
-	wg.Done()
-}
-
-func read_stat(setting map[string]string) map[string]int64 {
-	stat := make(map[string]int64)
-	for k, _ := range setting {
-		stat_file, err := os.Open(k)
-		if err != nil {
-			stat[k] = 0
-			continue
-		}
-		s, err := ioutil.ReadAll(stat_file)
-		if err != nil {
-			stat[k] = 0
-			continue
-		}
-		i, err := strconv.ParseInt(string(s), 10, 64)
-		stat[k] = i
-	}
-	return stat
-}
-
-func sync_stat(stat string, value int64) {
-	fd, err := os.Create(stat)
-	if err != nil {
-		log.Println("fail to create ", stat, err)
-	}
-	defer fd.Close()
-	fd.WriteString(fmt.Sprintf("%d", value))
 }
 
 func ReadConfig(file string) (map[string]string, error) {
@@ -85,24 +50,18 @@ func ReadConfig(file string) (map[string]string, error) {
 	return setting, nil
 }
 
-func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan chan int) {
+func readLog(file string, topic string, w *nsq.Writer, exitchan chan int) {
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer fd.Close()
-	size, err := fd.Seek(0, 2)
+	_, err = fd.Seek(0, 2)
 	if err != nil {
 		return
 	}
-	if size < offset {
-		fd.Seek(0, 0)
-	} else {
-		fd.Seek(offset, 0)
-	}
 	reader := bufio.NewReader(fd)
-	tick := time.Tick(time.Second * 10)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -141,12 +100,7 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			log.Println("NSQ writer", err)
 		}
 		select {
-		case <-tick:
-			size, _ := fd.Seek(0, 1)
-			sync_stat(topic, size)
 		case <-exitchan:
-			size, _ := fd.Seek(0, 1)
-			sync_stat(topic, size)
 			return
 		default:
 		}
