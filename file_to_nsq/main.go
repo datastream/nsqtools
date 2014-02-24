@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	nsq "github.com/bitly/go-nsq"
+	"github.com/bitly/go-nsq"
 	"io"
 	"io/ioutil"
 	"log"
