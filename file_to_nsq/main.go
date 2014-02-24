@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/datastream/nsq/nsq"
+	"github.com/bitly/go-nsq"
 	"io"
 	"io/ioutil"
 	"log"
@@ -24,11 +24,7 @@ var (
 
 func main() {
 	flag.Parse()
-	w := nsq.NewWriter()
-	err := w.ConnectToNSQ(*nsq_address)
-	if err != nil {
-		log.Fatal("fail to connect nsq", err)
-	}
+	w := nsq.NewWriter(*nsq_address)
 	setting, err := ReadConfig(*conf_file)
 	if err != nil {
 		log.Fatal("fail to read config", err)
@@ -140,11 +136,9 @@ func read_log(file string, offset int64, topic string, w *nsq.Writer, exitchan c
 			log.Println(err)
 			return
 		}
-		cmd := nsq.Publish(topic, []byte(line))
-		_, _, err = w.Write(cmd)
+		_, _, err = w.Publish(topic, []byte(line))
 		if err != nil {
 			log.Println("NSQ writer", err)
-			w.ConnectToNSQ(*nsq_address)
 		}
 		select {
 		case <-tick:
