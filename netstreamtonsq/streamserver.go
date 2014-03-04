@@ -129,7 +129,7 @@ func (s *StreamServer) readTCP() {
 func (s *StreamServer) loghandle(fd net.Conn) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
-	addr := fd.RemoteAddr()
+	addr := strings.Split(fd.RemoteAddr().String(), ":")[0]
 	s.wg.Add(1)
 	defer s.wg.Done()
 	for {
@@ -148,7 +148,7 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr.String(), msg)
+			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr, msg)
 		}
 	}
 }
