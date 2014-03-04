@@ -13,9 +13,7 @@ type Setting struct {
 	topic         string `jpath:"topic"`
 	tcpPort       string `jpath:"tcp_port"`
 	udpPort       string `jpath:"udp_port"`
-	exitChan      chan int
-	msgChan       chan string
-	writePoolSize int `jpath:"write_pool_size"`
+	writePoolSize int    `jpath:"write_pool_size"`
 }
 
 // ReadConfig used to read json to config

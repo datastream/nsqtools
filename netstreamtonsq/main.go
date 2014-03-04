@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	confFile = flag.String("conf", "config.json", "syslog2nsq config file")
+	confFile = flag.String("c", "netstreamtonsq.json", "syslog2nsq config file")
 )
 
 func main() {
