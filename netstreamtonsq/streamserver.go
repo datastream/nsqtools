@@ -83,11 +83,11 @@ func (s *StreamServer) readUDP() {
 		default:
 			size, addr, err := server.ReadFromUDP(buf)
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-				s.recoverChan <- "udp"
+				go func() { s.recoverChan <- "udp" }()
 				return
 			}
 			if err == io.EOF {
-				s.recoverChan <- "udp"
+				go func() { s.recoverChan <- "udp" }()
 				return
 			}
 			if err != nil {
@@ -113,7 +113,8 @@ func (s *StreamServer) readTCP() {
 		default:
 			fd, err := server.Accept()
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-				s.recoverChan <- "tcp"
+				go func() { s.recoverChan <- "tcp" }()
+				return
 			}
 			if err != nil {
 				log.Fatal("accept error", err)
