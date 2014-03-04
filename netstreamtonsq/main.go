@@ -22,7 +22,7 @@ func main() {
 	s := &StreamServer{
 		exitChan:    make(chan int),
 		recoverChan: make(chan string),
-		msgChan:     make(chan string),
+		msgChan:     make(chan []byte),
 	}
 	s.Setting = setting
 	s.Run()

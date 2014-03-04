@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"fmt"
+	"encoding/json"
 	"github.com/bitly/go-nsq"
 	"io"
 	"log"
@@ -15,7 +15,7 @@ import (
 type StreamServer struct {
 	*Setting
 	exitChan    chan int
-	msgChan     chan string
+	msgChan     chan []byte
 	recoverChan chan string
 	wg          sync.WaitGroup
 }
@@ -52,7 +52,7 @@ func (s *StreamServer) writeLoop(w *nsq.Writer) {
 	for {
 		select {
 		case msg := <-s.msgChan:
-			w.Publish(s.topic, []byte(msg))
+			w.Publish(s.topic, msg)
 		case <-s.exitChan:
 			return
 		}
@@ -94,7 +94,12 @@ func (s *StreamServer) readUDP() {
 				log.Println("read log failed", err)
 				continue
 			}
-			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr.String(), string(buf[:size]))
+			body, err := logToJSON(addr.String(), string(buf[:size]))
+			if err != nil {
+				log.Println("failed to parser JSON", err)
+				continue
+			}
+			s.msgChan <- body
 		}
 	}
 }
@@ -146,10 +151,22 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				return
 			}
 			if err != nil {
-				log.Fatal("read log failed", err)
+				log.Println("read log failed", err)
 				continue
 			}
-			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr.String(), msg)
+			body, err := logToJSON(addr.String(), msg)
+			if err != nil {
+				log.Println("failed to parser JSON", err)
+				continue
+			}
+			s.msgChan <- body
 		}
 	}
+}
+
+func logToJSON(addr string, msg string) ([]byte, error) {
+	r := make(map[string]string)
+	r["from"] = addr
+	r["raw_msg"] = msg
+	return json.Marshal(r)
 }
