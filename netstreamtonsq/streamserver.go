@@ -94,7 +94,7 @@ func (s *StreamServer) readUDP() {
 				log.Println("read log failed", err)
 				continue
 			}
-			s.msgChan <- fmt.Sprintf(`{"from":%d,"rawmsg":%s}`, addr.IP, string(buf[:size]))
+			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr.String(), string(buf[:size]))
 		}
 	}
 }
@@ -129,7 +129,7 @@ func (s *StreamServer) readTCP() {
 func (s *StreamServer) loghandle(fd net.Conn) {
 	defer fd.Close()
 	rbuf := bufio.NewReader(fd)
-	addr := strings.Split(fd.RemoteAddr().String(), ":")[0]
+	addr := fd.RemoteAddr()
 	s.wg.Add(1)
 	defer s.wg.Done()
 	for {
@@ -148,7 +148,7 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				log.Fatal("read log failed", err)
 				continue
 			}
-			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr, msg)
+			s.msgChan <- fmt.Sprintf(`{"from":%s,"rawmsg":%s}`, addr.String(), msg)
 		}
 	}
 }
