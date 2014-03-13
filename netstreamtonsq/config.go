@@ -11,8 +11,8 @@ import (
 type Setting struct {
 	nsqdAddr      string `jpath:"nsqd_addr"`
 	topic         string `jpath:"topic"`
-	tcpPort       string `jpath:"tcp_port"`
-	udpPort       string `jpath:"udp_port"`
+	tcpPort       string `jpath:"tcp_listen_address"`
+	udpPort       string `jpath:"udp_listen_address"`
 	writePoolSize int    `jpath:"write_pool_size"`
 }
 
