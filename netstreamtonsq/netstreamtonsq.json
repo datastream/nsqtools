@@ -1,6 +1,6 @@
 {
-    "nsqd_addr":"127.0.0.1:4151",
-    "topic":"onlinesystemlog",
+    "nsqd_addr": "127.0.0.1:4151",
+    "topic": "onlinesystemlog",
     "tcp_listen_address":"0.0.0.0:2330",
     "udp_listen_address":"0.0.0.0:2330",
     "write_pool_size": 10
