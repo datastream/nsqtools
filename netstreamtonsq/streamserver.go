@@ -74,8 +74,6 @@ func (s *StreamServer) readUDP() {
 	}
 	defer server.Close()
 	buf := make([]byte, 8192)
-	s.wg.Add(1)
-	defer s.wg.Done()
 	for {
 		select {
 		case <-s.exitChan:
@@ -109,8 +107,6 @@ func (s *StreamServer) readTCP() {
 		log.Fatal("server bind failed:", err)
 	}
 	defer server.Close()
-	s.wg.Add(1)
-	defer s.wg.Done()
 	for {
 		select {
 		case <-s.exitChan:
