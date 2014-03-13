@@ -9,11 +9,11 @@ import (
 
 // Config is metrictools config struct
 type Setting struct {
-	nsqdAddr      string `jpath:"nsqd_addr"`
-	topic         string `jpath:"topic"`
-	tcpPort       string `jpath:"tcp_listen_address"`
-	udpPort       string `jpath:"udp_listen_address"`
-	writePoolSize int    `jpath:"write_pool_size"`
+	NsqdAddr      string `jpath:"nsqd_addr"`
+	Topic         string `jpath:"topic"`
+	TcpPort       string `jpath:"tcp_listen_address"`
+	UdpPort       string `jpath:"udp_listen_address"`
+	WritePoolSize int    `jpath:"write_pool_size"`
 }
 
 // ReadConfig used to read json to config

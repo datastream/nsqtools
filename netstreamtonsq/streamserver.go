@@ -21,8 +21,8 @@ type StreamServer struct {
 }
 
 func (s *StreamServer) Run() {
-	for i := 0; i < s.writePoolSize; i++ {
-		w := nsq.NewWriter(s.nsqdAddr)
+	for i := 0; i < s.WritePoolSize; i++ {
+		w := nsq.NewWriter(s.NsqdAddr)
 		go s.writeLoop(w)
 	}
 	go s.readUDP()
@@ -52,7 +52,7 @@ func (s *StreamServer) writeLoop(w *nsq.Writer) {
 	for {
 		select {
 		case msg := <-s.msgChan:
-			w.Publish(s.topic, msg)
+			w.Publish(s.Topic, msg)
 		case <-s.exitChan:
 			return
 		}
@@ -64,7 +64,7 @@ func (s *StreamServer) Stop() {
 }
 
 func (s *StreamServer) readUDP() {
-	udpAddr, err := net.ResolveUDPAddr("udp", s.udpPort)
+	udpAddr, err := net.ResolveUDPAddr("udp", s.UdpPort)
 	if err != nil {
 		log.Fatal("udp:", err)
 	}
@@ -102,7 +102,7 @@ func (s *StreamServer) readUDP() {
 	}
 }
 func (s *StreamServer) readTCP() {
-	server, err := net.Listen("tcp", s.tcpPort)
+	server, err := net.Listen("tcp", s.TcpPort)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
 	}
