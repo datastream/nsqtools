@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"github.com/bitly/go-nsq"
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +23,12 @@ type StreamServer struct {
 }
 
 func (s *StreamServer) Run() {
+	cfg := nsq.NewConfig()
+	hostname, _ := os.Hostname()
+	cfg.Set("user_agent", fmt.Sprintf("netstream/%s", hostname))
+	cfg.Set("snappy", true)
 	for i := 0; i < s.WritePoolSize; i++ {
-		w := nsq.NewWriter(s.NsqdAddr)
+		w, _ := nsq.NewProducer(s.NsqdAddr, cfg)
 		go s.writeLoop(w)
 	}
 	go s.readUDP()
@@ -48,7 +54,7 @@ func (s *StreamServer) recoverServer() {
 	}
 }
 
-func (s *StreamServer) writeLoop(w *nsq.Writer) {
+func (s *StreamServer) writeLoop(w *nsq.Producer) {
 	for {
 		select {
 		case msg := <-s.msgChan:
