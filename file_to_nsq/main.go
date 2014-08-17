@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"github.com/bitly/go-nsq"
 	"io"
 	"io/ioutil"
@@ -21,7 +22,11 @@ var (
 
 func main() {
 	flag.Parse()
-	w := nsq.NewWriter(*nsq_address)
+	cfg := nsq.NewConfig()
+	hostname, err := os.Hostname()
+	cfg.Set("user_agent", fmt.Sprintf("file_to_nsq/%s", hostname))
+	cfg.Set("snappy", true)
+	w, _ := nsq.NewProducer(*nsq_address, cfg)
 	setting, err := ReadConfig(*conf_file)
 	if err != nil {
 		log.Fatal("fail to read config", err)
@@ -50,7 +55,7 @@ func ReadConfig(file string) (map[string]string, error) {
 	return setting, nil
 }
 
-func readLog(file string, topic string, w *nsq.Writer, exitchan chan int) {
+func readLog(file string, topic string, w *nsq.Producer, exitchan chan int) {
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -95,7 +100,7 @@ func readLog(file string, topic string, w *nsq.Writer, exitchan chan int) {
 			log.Println(err)
 			return
 		}
-		_, _, err = w.Publish(topic, []byte(line))
+		err = w.Publish(topic, []byte(line))
 		if err != nil {
 			log.Println("NSQ writer", err)
 		}
