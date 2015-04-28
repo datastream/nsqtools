@@ -42,6 +42,8 @@ func watchFiles(fileDir string, topic string, w *nsq.Producer, exitchan chan int
 	}
 	defer watcher.Close()
 	var f FileList
+	f.Files = make(map[string]bool)
+	f.FileDescribe = make(map[string]*os.File)
 	go func() {
 		for {
 			select {
@@ -50,7 +52,7 @@ func watchFiles(fileDir string, topic string, w *nsq.Producer, exitchan chan int
 					go f.ReadLog(event.Name, topic, w, exitchan)
 				}
 			case err := <-watcher.Errors:
-				log.Println("error:", err)
+				log.Println("watcher error:", err)
 			}
 		}
 	}()
@@ -58,4 +60,5 @@ func watchFiles(fileDir string, topic string, w *nsq.Producer, exitchan chan int
 	if err != nil {
 		log.Fatal(err)
 	}
+	<-exitchan
 }
