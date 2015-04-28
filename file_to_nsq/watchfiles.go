@@ -12,7 +12,8 @@ import (
 )
 
 type FileList struct {
-	Files map[string]bool
+	Files        map[string]bool
+	FileDescribe map[string]*os.File
 	sync.Mutex
 }
 
@@ -34,12 +35,15 @@ func (f *FileList) Update(e fsnotify.Event) bool {
 	return false
 }
 func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan chan int) {
+	f.Lock()
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer fd.Close()
+	f.FileDescribe[file] = fd
+	f.Unlock()
 	_, err = fd.Seek(0, 2)
 	if err != nil {
 		return
@@ -55,6 +59,9 @@ func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan 
 			log.Println("READ EOF")
 			f.Lock()
 			if _, ok := f.Files[file]; !ok {
+				break
+			}
+			if f.FileDescribe[file] != fd {
 				break
 			}
 			f.Unlock()
