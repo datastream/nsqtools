@@ -44,6 +44,7 @@ func watchFiles(fileDir string, topic string, w *nsq.Producer, exitchan chan int
 	var f FileList
 	f.Files = make(map[string]bool)
 	f.FileDescribe = make(map[string]*os.File)
+	f.FileStat = make(map[string]chan int)
 	go func() {
 		for {
 			select {
