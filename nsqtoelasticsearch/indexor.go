@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/bitly/go-nsq"
-	"github.com/mattbaird/elastigo/api"
-	"github.com/mattbaird/elastigo/core"
+	"github.com/mattbaird/elastigo/lib"
+	"github.com/nsqio/go-nsq"
 	"log"
 	"os"
 	"time"
@@ -30,6 +29,7 @@ func (m *Builder) Run() error {
 		return err
 	}
 	go m.elasticSearchBuildIndex()
+	m.consumer.AddConcurrentHandlers(m, m.MaxInFlight)
 	err = m.consumer.ConnectToNSQLookupds(m.LookupdAddresses)
 	if err != nil {
 		return err
@@ -42,23 +42,22 @@ func (m *Builder) HandleMessage(msg *nsq.Message) error {
 	return nil
 }
 func (m *Builder) elasticSearchBuildIndex() {
-	api.Domain = m.ElasticSearchHost
-	api.Port = m.ElasticSearchPort
-	indexor := core.NewBulkIndexorErrors(10, 60)
-	done := make(chan bool)
-	indexor.Run(done)
+	c := elastigo.NewConn()
+	c.Domain = m.ElasticSearchHost
+	indexor := c.NewBulkIndexerErrors(10, 60)
+	indexor.Start()
+	defer indexor.Stop()
 	for {
 		select {
 		case errBuf := <-indexor.ErrorChannel:
 			log.Println(errBuf.Err)
 		case body := <-m.dataChannel:
 			timestamp := time.Now()
-			indexor.Index(m.ElasticsearchIndex, m.Topic, "", m.ElasticsearchIndexTTL, &timestamp, body)
+			indexor.Index(m.ElasticsearchIndex, m.Topic, "", "", m.ElasticsearchIndexTTL, &timestamp, body)
 		case <-m.exitChannel:
 			break
 		}
 	}
-	done <- true
 }
 
 func (m *Builder) Stop() {
