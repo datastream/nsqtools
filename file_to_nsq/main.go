@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/bitly/go-nsq"
+	"github.com/hashicorp/consul/api"
+	"github.com/nsqio/go-nsq"
 	"io"
 	"io/ioutil"
 	"log"
@@ -26,19 +27,84 @@ func main() {
 	hostname, err := os.Hostname()
 	cfg.Set("user_agent", fmt.Sprintf("file_to_nsq/%s", hostname))
 	cfg.Set("snappy", true)
-	w, _ := nsq.NewProducer(*nsq_address, cfg)
+	writer, _ := nsq.NewProducer(*nsq_address, cfg)
 	setting, err := ReadConfig(*conf_file)
 	if err != nil {
 		log.Fatal("fail to read config", err)
 	}
-	exitchan := make(chan int)
-	for k, v := range setting {
-		go readLog(v, k, w, exitchan)
+	oldConf, err := ReadConfigFromConsul(setting)
+	if err != nil {
+		log.Fatal("fail to read consul config", err)
 	}
+	exitchan := make(chan int)
+	RunTask(oldConf, setting["topic"], writer, exitchan)
+	ticker := time.Tick(time.Second * 600)
+	go func() {
+		for {
+			select {
+			case <-ticker:
+				newConf, err := ReadConfigFromConsul(setting)
+				if err != nil {
+					continue
+				}
+				if CheckReload(oldConf, newConf) {
+					oldConf = newConf
+					close(exitchan)
+					exitchan = make(chan int)
+					RunTask(oldConf, setting["topic"], writer, exitchan)
+				}
+			}
+		}
+	}()
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan
 	close(exitchan)
+}
+func RunTask(settings map[string]string, topic string, writer *nsq.Producer, exitchan chan int) {
+	for files, topic := range settings {
+		fileNames := strings.Split(string(files), ",")
+		for _, fileName := range fileNames {
+			fileName = strings.Trim(fileName, " ")
+			go readLog(fileName, topic, writer, exitchan)
+		}
+	}
+}
+func CheckReload(oldConf map[string]string, newConf map[string]string) bool {
+	for k, _ := range newConf {
+		if oldConf[k] != newConf[k] {
+			return true
+		}
+	}
+	for k, _ := range oldConf {
+		if oldConf[k] != newConf[k] {
+			return true
+		}
+	}
+	return false
+}
+func ReadConfigFromConsul(setting map[string]string) (map[string]string, error) {
+	consulSetting := make(map[string]string)
+	config := api.DefaultConfig()
+	config.Address = setting["consul_address"]
+	config.Datacenter = setting["datacenter"]
+	config.Token = setting["consul_token"]
+	client, err := api.NewClient(config)
+	if err != nil {
+		return consulSetting, err
+	}
+	kv := client.KV()
+	pairs, _, err := kv.List(setting["cluster"], nil)
+	if err != nil {
+		return consulSetting, err
+	}
+	size := len(setting["cluster"]) + 1
+	for _, value := range pairs {
+		if len(value.Key) > size {
+			consulSetting[value.Key[size:]] = string(value.Value)
+		}
+	}
+	return consulSetting, err
 }
 
 func ReadConfig(file string) (map[string]string, error) {
