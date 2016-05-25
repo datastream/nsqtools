@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-
 	"github.com/hashicorp/consul/api"
 	"github.com/nsqio/go-nsq"
 	"io"
