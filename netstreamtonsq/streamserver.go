@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/bitly/go-nsq"
+	"github.com/nsqio/go-nsq"
 	"io"
 	"log"
 	"net"
