@@ -114,6 +114,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		return
 	}
 	reader := bufio.NewReader(fd)
+	var body [][]byte
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -147,7 +148,11 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			log.Println(err)
 			return
 		}
-		err = m.Writer.Publish(topic, []byte(line))
+		body = append(body, []byte(line))
+		if len(body) > 100 {
+			err = m.Writer.MultiPublish(topic, body)
+			body = body[:0]
+		}
 		if err != nil {
 			log.Println("NSQ writer", err)
 		}
