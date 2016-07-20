@@ -12,16 +12,23 @@ import (
 	"time"
 )
 
+type message struct {
+	topic string
+	body  [][]byte
+}
+
 type LogTask struct {
 	Writer        *nsq.Producer
 	LogStat       map[string]chan int
 	CurrentConfig map[string]string
 	Setting       map[string]string
+	msgChan       chan *message
 	exitChan      chan int
 }
 
 func (m *LogTask) Run() {
 	m.exitChan = make(chan int)
+	m.msgChan = make(chan *message)
 	ticker := time.Tick(time.Second * 600)
 	err := m.CheckReload()
 	if err != nil {
@@ -85,6 +92,7 @@ func (m *LogTask) CheckReload() error {
 				fileNames := strings.Split(newConf[k], ",")
 				m.LogStat[k] = make(chan int)
 				for _, fileName := range fileNames {
+					go m.WriteLoop(m.LogStat[k])
 					go m.ReadLog(fileName, k, m.LogStat[k])
 				}
 			}
@@ -113,6 +121,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 	if err != nil {
 		return
 	}
+	log.Println("reading ", file)
 	reader := bufio.NewReader(fd)
 	var body [][]byte
 	for {
@@ -122,11 +131,11 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		default:
 			line, err := reader.ReadString('\n')
 			if err != nil {
-				time.Sleep(time.Second * 10)
+				time.Sleep(time.Second)
 				line, err = reader.ReadString('\n')
 			}
 			if err == io.EOF {
-				log.Println("READ EOF")
+				log.Println(file, "READ EOF")
 				size0, err := fd.Seek(0, 1)
 				if err != nil {
 					return
@@ -154,12 +163,27 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			}
 			body = append(body, []byte(line))
 			if len(body) > 100 {
-				err = m.Writer.MultiPublish(topic, body)
+				msg := &message{
+					topic: topic,
+					body:  body,
+				}
+				m.msgChan <- msg
 				body = body[:0]
 			}
-			if err != nil {
-				log.Println("NSQ writer", err)
-			}
+		}
+	}
+}
+
+func (m *LogTask) WriteLoop(exitchan chan int) {
+	defer m.Writer.Stop()
+	for {
+		select {
+		case <-m.exitChan:
+			return
+		case <-exitchan:
+			return
+		case msg := <-m.msgChan:
+			m.Writer.MultiPublish(msg.topic, msg.body)
 		}
 	}
 }
