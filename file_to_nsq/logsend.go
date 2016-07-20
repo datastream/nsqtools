@@ -116,50 +116,50 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 	reader := bufio.NewReader(fd)
 	var body [][]byte
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			time.Sleep(time.Second * 10)
-			line, err = reader.ReadString('\n')
-		}
-		if err == io.EOF {
-			log.Println("READ EOF")
-			size0, err := fd.Seek(0, 1)
-			if err != nil {
-				return
-			}
-			fd, err = os.Open(file)
-			if err != nil {
-				log.Println("open failed", err)
-				return
-			}
-			size1, err := fd.Seek(0, 2)
-			if err != nil {
-				log.Println(err)
-			}
-			if size1 < size0 {
-				fd.Seek(0, 0)
-			} else {
-				fd.Seek(size0, 0)
-			}
-			reader = bufio.NewReader(fd)
-			continue
-		}
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		body = append(body, []byte(line))
-		if len(body) > 100 {
-			err = m.Writer.MultiPublish(topic, body)
-			body = body[:0]
-		}
-		if err != nil {
-			log.Println("NSQ writer", err)
-		}
 		select {
 		case <-exitchan:
 			return
 		default:
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				time.Sleep(time.Second * 10)
+				line, err = reader.ReadString('\n')
+			}
+			if err == io.EOF {
+				log.Println("READ EOF")
+				size0, err := fd.Seek(0, 1)
+				if err != nil {
+					return
+				}
+				fd, err = os.Open(file)
+				if err != nil {
+					log.Println("open failed", err)
+					return
+				}
+				size1, err := fd.Seek(0, 2)
+				if err != nil {
+					log.Println(err)
+				}
+				if size1 < size0 {
+					fd.Seek(0, 0)
+				} else {
+					fd.Seek(size0, 0)
+				}
+				reader = bufio.NewReader(fd)
+				continue
+			}
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			body = append(body, []byte(line))
+			if len(body) > 100 {
+				err = m.Writer.MultiPublish(topic, body)
+				body = body[:0]
+			}
+			if err != nil {
+				log.Println("NSQ writer", err)
+			}
 		}
 	}
 }
