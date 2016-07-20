@@ -30,6 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal("fail to read config", err)
 	}
+	m.Run()
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)
 	<-termchan

@@ -21,12 +21,12 @@ type LogTask struct {
 }
 
 func (m *LogTask) Run() {
+	m.exitChan = make(chan int)
 	ticker := time.Tick(time.Second * 600)
 	err := m.CheckReload()
 	if err != nil {
 		fmt.Println("reload consul setting failed", err)
 	}
-	m.exitChan = make(chan int)
 	for {
 		select {
 		case <-ticker:
