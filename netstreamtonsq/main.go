@@ -24,7 +24,7 @@ func main() {
 		msgChan:  make(chan [][]byte),
 	}
 	s.Setting = setting
-	s.Run()
+	go s.Run()
 	defer s.Stop()
 	termchan := make(chan os.Signal, 1)
 	signal.Notify(termchan, syscall.SIGINT, syscall.SIGTERM)

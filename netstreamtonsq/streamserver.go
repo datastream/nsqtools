@@ -3,27 +3,28 @@ package main
 import (
 	"./logformat"
 	"bufio"
+	"encoding/json"
 	"fmt"
 	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/hashicorp/consul/api"
+	"github.com/jeromer/syslogparser/rfc3164"
 	"github.com/nsqio/go-nsq"
 	"log"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
-type message struct {
-	topic string
-	body  [][]byte
-}
-
 type StreamServer struct {
 	*Setting
-	exitChan chan int
-	msgChan  chan [][]byte
-	wg       sync.WaitGroup
+	exitChan      chan int
+	msgChan       chan [][]byte
+	CurrentConfig map[string][]*regexp.Regexp
+	wg            sync.WaitGroup
+	sync.Mutex
 }
 
 func (s *StreamServer) Run() {
@@ -35,8 +36,24 @@ func (s *StreamServer) Run() {
 		w, _ := nsq.NewProducer(s.NsqdAddr, cfg)
 		go s.writeLoop(w)
 	}
+	ticker := time.Tick(time.Second * 600)
 	go s.readUDP()
 	go s.readTCP()
+	var err error
+	s.CurrentConfig, err = s.GetRegexp()
+	for {
+		select {
+		case <-ticker:
+			s.Lock()
+			s.CurrentConfig, err = s.GetRegexp()
+			s.Unlock()
+			if err != nil {
+				fmt.Println("reload consul setting failed", err)
+			}
+		case <-s.exitChan:
+			return
+		}
+	}
 }
 
 func (s *StreamServer) writeLoop(w *nsq.Producer) {
@@ -75,6 +92,9 @@ func (s *StreamServer) readUDP() {
 			size, addr, err := server.ReadFromUDP(buf)
 			if err != nil {
 				log.Println("read log failed", err)
+				continue
+			}
+			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
 			fbuf := MakeLog(b, addr.String(), string(buf[:size]))
@@ -131,6 +151,9 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				return
 			}
 			msg := scanner.Text()
+			if s.IsIgnoreLog([]byte(msg)) {
+				continue
+			}
 			buf := MakeLog(b, addr.String(), msg)
 			bodies = append(bodies, []byte(buf))
 			if len(bodies) > 100 {
@@ -152,4 +175,62 @@ func MakeLog(b *flatbuffers.Builder, addr string, msg string) []byte {
 	log_end := logformat.LogMessageEnd(b)
 	b.Finish(log_end)
 	return b.Bytes[b.Head():]
+}
+
+func (s *StreamServer) IsIgnoreLog(buf []byte) bool {
+	p := rfc3164.NewParser(buf)
+	if err := p.Parse(); err != nil {
+		return false
+	}
+	data := p.Dump()
+	tag := data["tag"].(string)
+	if len(tag) == 0 {
+		return false
+	}
+	s.Lock()
+	rgs, ok := s.CurrentConfig[tag]
+	s.Unlock()
+	if ok {
+		for _, r := range rgs {
+			if r.MatchString(data["content"].(string)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+func (s *StreamServer) GetRegexp() (map[string][]*regexp.Regexp, error) {
+	consulSetting := make(map[string][]*regexp.Regexp)
+	config := api.DefaultConfig()
+	config.Address = s.ConsulAddress
+	config.Datacenter = s.Datacenter
+	config.Token = s.Token
+	client, err := api.NewClient(config)
+	if err != nil {
+		return consulSetting, err
+	}
+	kv := client.KV()
+	pairs, _, err := kv.List(s.ConsulKey, nil)
+	if err != nil {
+		return consulSetting, err
+	}
+	size := len(s.ConsulKey) + 1
+	for _, value := range pairs {
+		if len(value.Key) > size {
+			var regs []string
+			if err := json.Unmarshal(value.Value, &regs); err == nil {
+				var rs []*regexp.Regexp
+				for _, v := range regs {
+					x, e := regexp.CompilePOSIX(v)
+					if e != nil {
+						log.Println("get regexp", e)
+						continue
+					}
+					rs = append(rs, x)
+				}
+				consulSetting[value.Key[size:]] = rs
+			}
+		}
+	}
+	return consulSetting, err
 }
