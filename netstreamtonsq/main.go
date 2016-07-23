@@ -20,9 +20,8 @@ func main() {
 		log.Fatal("config parse error", err)
 	}
 	s := &StreamServer{
-		exitChan:    make(chan int),
-		recoverChan: make(chan string),
-		msgChan:     make(chan []byte),
+		exitChan: make(chan int),
+		msgChan:  make(chan [][]byte),
 	}
 	s.Setting = setting
 	s.Run()

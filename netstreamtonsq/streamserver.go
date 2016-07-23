@@ -1,11 +1,11 @@
 package main
 
 import (
+	"./logformat"
 	"bufio"
-	"encoding/json"
 	"fmt"
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/nsqio/go-nsq"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -14,12 +14,16 @@ import (
 	"time"
 )
 
+type message struct {
+	topic string
+	body  [][]byte
+}
+
 type StreamServer struct {
 	*Setting
-	exitChan    chan int
-	msgChan     chan []byte
-	recoverChan chan string
-	wg          sync.WaitGroup
+	exitChan chan int
+	msgChan  chan [][]byte
+	wg       sync.WaitGroup
 }
 
 func (s *StreamServer) Run() {
@@ -33,32 +37,13 @@ func (s *StreamServer) Run() {
 	}
 	go s.readUDP()
 	go s.readTCP()
-	go s.recoverServer()
-}
-
-func (s *StreamServer) recoverServer() {
-	for {
-		select {
-		case sType := <-s.recoverChan:
-			time.Sleep(time.Second)
-			log.Println(sType, " reconnecting")
-			if sType == "tcp" {
-				go s.readTCP()
-			}
-			if sType == "udp" {
-				go s.readUDP()
-			}
-		case <-s.exitChan:
-			return
-		}
-	}
 }
 
 func (s *StreamServer) writeLoop(w *nsq.Producer) {
 	for {
 		select {
 		case msg := <-s.msgChan:
-			w.Publish(s.Topic, msg)
+			w.MultiPublish(s.Topic, msg)
 		case <-s.exitChan:
 			return
 		}
@@ -79,31 +64,25 @@ func (s *StreamServer) readUDP() {
 		log.Fatal("server bind failed:", err)
 	}
 	defer server.Close()
-	buf := make([]byte, 8192)
+	buf := make([]byte, 8192*8)
+	var bodies [][]byte
+	b := flatbuffers.NewBuilder(0)
 	for {
 		select {
 		case <-s.exitChan:
 			return
 		default:
 			size, addr, err := server.ReadFromUDP(buf)
-			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-				go func() { s.recoverChan <- "udp" }()
-				return
-			}
-			if err == io.EOF {
-				go func() { s.recoverChan <- "udp" }()
-				return
-			}
 			if err != nil {
 				log.Println("read log failed", err)
 				continue
 			}
-			body, err := logToJSON(addr.String(), string(buf[:size]))
-			if err != nil {
-				log.Println("failed to parser JSON", err)
-				continue
+			fbuf := MakeLog(b, addr.String(), string(buf[:size]))
+			bodies = append(bodies, []byte(fbuf))
+			if len(bodies) > 100 {
+				s.msgChan <- bodies
+				bodies = bodies[:0]
 			}
-			s.msgChan <- body
 		}
 	}
 }
@@ -119,10 +98,6 @@ func (s *StreamServer) readTCP() {
 			return
 		default:
 			fd, err := server.Accept()
-			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-				go func() { s.recoverChan <- "tcp" }()
-				return
-			}
 			if err != nil {
 				log.Fatal("accept error", err)
 				time.Sleep(time.Second)
@@ -136,39 +111,45 @@ func (s *StreamServer) readTCP() {
 // receive log from tcp socket, encode json and send to msg_chan
 func (s *StreamServer) loghandle(fd net.Conn) {
 	defer fd.Close()
-	rbuf := bufio.NewReader(fd)
+	scanner := bufio.NewScanner(fd)
+	scanner.Split(bufio.ScanLines)
 	addr := fd.RemoteAddr()
 	s.wg.Add(1)
 	defer s.wg.Done()
+	var bodies [][]byte
+	var err error
+	b := flatbuffers.NewBuilder(0)
 	for {
 		select {
 		case <-s.exitChan:
 			return
 		default:
-			msg, err := rbuf.ReadString('\n')
+			if scanner.Scan() == false {
+				err = scanner.Err()
+			}
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
-			if err == io.EOF {
-				return
+			msg := scanner.Text()
+			buf := MakeLog(b, addr.String(), msg)
+			bodies = append(bodies, []byte(buf))
+			if len(bodies) > 100 {
+				s.msgChan <- bodies
+				bodies = bodies[:0]
 			}
-			if err != nil {
-				log.Println("read log failed", err)
-				continue
-			}
-			body, err := logToJSON(addr.String(), msg)
-			if err != nil {
-				log.Println("failed to parser JSON", err)
-				continue
-			}
-			s.msgChan <- body
+
 		}
 	}
 }
 
-func logToJSON(addr string, msg string) ([]byte, error) {
-	r := make(map[string]string)
-	r["from"] = addr
-	r["raw_msg"] = msg
-	return json.Marshal(r)
+func MakeLog(b *flatbuffers.Builder, addr string, msg string) []byte {
+	b.Reset()
+	addr_postion := b.CreateByteString([]byte(addr))
+	logformat.LogMessageStart(b)
+	logformat.LogMessageAddFrom(b, addr_postion)
+	msg_postion := b.CreateByteString([]byte(msg))
+	logformat.LogMessageAddRawMsg(b, msg_postion)
+	log_end := logformat.LogMessageEnd(b)
+	b.Finish(log_end)
+	return b.Bytes[b.Head():]
 }
