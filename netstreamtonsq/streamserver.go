@@ -167,10 +167,10 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 
 func MakeLog(b *flatbuffers.Builder, addr string, msg string) []byte {
 	b.Reset()
-	addr_postion := b.CreateByteString([]byte(addr))
+	addr_postion := b.CreateString(addr)
+	msg_postion := b.CreateString(msg)
 	logformat.LogMessageStart(b)
 	logformat.LogMessageAddFrom(b, addr_postion)
-	msg_postion := b.CreateByteString([]byte(msg))
 	logformat.LogMessageAddRawMsg(b, msg_postion)
 	log_end := logformat.LogMessageEnd(b)
 	b.Finish(log_end)
