@@ -104,7 +104,7 @@ func (s *StreamServer) readUDP() {
 			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
-			logFormat := &LogFromat{
+			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
 				Rawmsg: proto.String(string(buf[:size])),
 			}
@@ -167,7 +167,7 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 			if s.IsIgnoreLog([]byte(msg)) {
 				continue
 			}
-			logFormat := &LogFromat{
+			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
 				Rawmsg: proto.String(msg),
 			}

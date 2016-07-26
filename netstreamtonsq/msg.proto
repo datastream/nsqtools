@@ -1,6 +1,6 @@
 package main;
 
-message LogFromat {
+message LogFormat {
   optional string from = 1;
   optional string rawmsg = 2;
 }
