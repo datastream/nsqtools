@@ -24,6 +24,7 @@ type StreamServer struct {
 	msgChan       chan [][]byte
 	CurrentConfig map[string][]*regexp.Regexp
 	wg            sync.WaitGroup
+	client        *api.Client
 	sync.Mutex
 }
 
@@ -40,6 +41,14 @@ func (s *StreamServer) Run() {
 	go s.readUDP()
 	go s.readTCP()
 	var err error
+	config := api.DefaultConfig()
+	config.Address = s.ConsulAddress
+	config.Datacenter = s.Datacenter
+	config.Token = s.Token
+	s.client, err = api.NewClient(config)
+	if err != nil {
+		fmt.Println("reload consul setting failed", err)
+	}
 	s.CurrentConfig, err = s.GetRegexp()
 	for {
 		select {
@@ -98,7 +107,7 @@ func (s *StreamServer) readUDP() {
 				continue
 			}
 			fbuf := MakeLog(b, addr.String(), string(buf[:size]))
-			bodies = append(bodies, []byte(fbuf))
+			bodies = append(bodies, fbuf)
 			if len(bodies) > 100 {
 				s.msgChan <- bodies
 				bodies = bodies[:0]
@@ -174,7 +183,7 @@ func MakeLog(b *flatbuffers.Builder, addr string, msg string) []byte {
 	logformat.LogMessageAddRawMsg(b, msg_postion)
 	log_end := logformat.LogMessageEnd(b)
 	b.Finish(log_end)
-	return b.Bytes[b.Head():]
+	return b.FinishedBytes()
 }
 
 func (s *StreamServer) IsIgnoreLog(buf []byte) bool {
@@ -201,15 +210,7 @@ func (s *StreamServer) IsIgnoreLog(buf []byte) bool {
 }
 func (s *StreamServer) GetRegexp() (map[string][]*regexp.Regexp, error) {
 	consulSetting := make(map[string][]*regexp.Regexp)
-	config := api.DefaultConfig()
-	config.Address = s.ConsulAddress
-	config.Datacenter = s.Datacenter
-	config.Token = s.Token
-	client, err := api.NewClient(config)
-	if err != nil {
-		return consulSetting, err
-	}
-	kv := client.KV()
+	kv := s.client.KV()
 	pairs, _, err := kv.List(s.ConsulKey, nil)
 	if err != nil {
 		return consulSetting, err

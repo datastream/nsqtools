@@ -23,6 +23,7 @@ type LogTask struct {
 	CurrentConfig map[string]string
 	Setting       map[string]string
 	msgChan       chan *message
+	client        *api.Client
 	exitChan      chan int
 }
 
@@ -30,7 +31,16 @@ func (m *LogTask) Run() {
 	m.exitChan = make(chan int)
 	m.msgChan = make(chan *message)
 	ticker := time.Tick(time.Second * 600)
-	err := m.CheckReload()
+	config := api.DefaultConfig()
+	config.Address = m.Setting["consul_address"]
+	config.Datacenter = m.Setting["datacenter"]
+	config.Token = m.Setting["consul_token"]
+	var err error
+	m.client, err = api.NewClient(config)
+	if err != nil {
+		fmt.Println("reload consul setting failed", err)
+	}
+	err = m.CheckReload()
 	if err != nil {
 		fmt.Println("reload consul setting failed", err)
 	}
@@ -54,15 +64,7 @@ func (m *LogTask) Stop() {
 }
 func (m *LogTask) ReadConfigFromConsul() (map[string]string, error) {
 	consulSetting := make(map[string]string)
-	config := api.DefaultConfig()
-	config.Address = m.Setting["consul_address"]
-	config.Datacenter = m.Setting["datacenter"]
-	config.Token = m.Setting["consul_token"]
-	client, err := api.NewClient(config)
-	if err != nil {
-		return consulSetting, err
-	}
-	kv := client.KV()
+	kv := m.client.KV()
 	pairs, _, err := kv.List(m.Setting["cluster"], nil)
 	if err != nil {
 		return consulSetting, err
