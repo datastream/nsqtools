@@ -1,0 +1,6 @@
+package main;
+
+message LogFromat {
+  optional string from = 1;
+  optional string rawmsg = 2;
+}

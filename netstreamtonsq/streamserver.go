@@ -1,11 +1,10 @@
 package main
 
 import (
-	"./logformat"
 	"bufio"
 	"encoding/json"
 	"fmt"
-	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/consul/api"
 	"github.com/jeromer/syslogparser/rfc3164"
 	"github.com/nsqio/go-nsq"
@@ -92,7 +91,6 @@ func (s *StreamServer) readUDP() {
 	defer server.Close()
 	buf := make([]byte, 8192*8)
 	var bodies [][]byte
-	b := flatbuffers.NewBuilder(0)
 	for {
 		select {
 		case <-s.exitChan:
@@ -106,8 +104,15 @@ func (s *StreamServer) readUDP() {
 			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
-			fbuf := MakeLog(b, addr.String(), string(buf[:size]))
-			bodies = append(bodies, fbuf)
+			logFormat := &LogFromat{
+				From:   proto.String(addr.String()),
+				Rawmsg: proto.String(string(buf[:size])),
+			}
+			record, err := proto.Marshal(logFormat)
+			if err != nil {
+				continue
+			}
+			bodies = append(bodies, record)
 			if len(bodies) > 100 {
 				s.msgChan <- bodies
 				bodies = bodies[:0]
@@ -147,7 +152,6 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 	defer s.wg.Done()
 	var bodies [][]byte
 	var err error
-	b := flatbuffers.NewBuilder(0)
 	for {
 		select {
 		case <-s.exitChan:
@@ -163,8 +167,15 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 			if s.IsIgnoreLog([]byte(msg)) {
 				continue
 			}
-			buf := MakeLog(b, addr.String(), msg)
-			bodies = append(bodies, []byte(buf))
+			logFormat := &LogFromat{
+				From:   proto.String(addr.String()),
+				Rawmsg: proto.String(msg),
+			}
+			record, err := proto.Marshal(logFormat)
+			if err != nil {
+				continue
+			}
+			bodies = append(bodies, record)
 			if len(bodies) > 100 {
 				s.msgChan <- bodies
 				bodies = bodies[:0]
@@ -172,18 +183,6 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 
 		}
 	}
-}
-
-func MakeLog(b *flatbuffers.Builder, addr string, msg string) []byte {
-	b.Reset()
-	addr_postion := b.CreateString(addr)
-	msg_postion := b.CreateString(msg)
-	logformat.LogMessageStart(b)
-	logformat.LogMessageAddFrom(b, addr_postion)
-	logformat.LogMessageAddRawMsg(b, msg_postion)
-	log_end := logformat.LogMessageEnd(b)
-	b.Finish(log_end)
-	return b.FinishedBytes()
 }
 
 func (s *StreamServer) IsIgnoreLog(buf []byte) bool {

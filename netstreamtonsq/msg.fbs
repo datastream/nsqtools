@@ -1,8 +1,0 @@
-namespace logformat;
-
-table LogMessage {
-  from:string;
-  raw_msg:string;
-}
-
-root_type LogMessage;
