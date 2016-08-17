@@ -61,6 +61,7 @@ func (m *LogTask) Stop() {
 	for _, v := range m.LogStat {
 		close(v)
 	}
+	m.Writer.Stop()
 }
 func (m *LogTask) ReadConfigFromConsul() (map[string]string, error) {
 	consulSetting := make(map[string]string)
@@ -177,7 +178,6 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 }
 
 func (m *LogTask) WriteLoop(exitchan chan int) {
-	defer m.Writer.Stop()
 	for {
 		select {
 		case <-m.exitChan:
