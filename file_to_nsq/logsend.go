@@ -120,7 +120,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		return
 	}
 	defer fd.Close()
-	_, err = fd.Seek(0, 2)
+	_, err = fd.Seek(0, os.SEEK_END)
 	if err != nil {
 		return
 	}
@@ -139,7 +139,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			}
 			if err == io.EOF {
 				log.Println(file, "READ EOF")
-				size0, err := fd.Seek(0, 1)
+				size0, err := fd.Seek(0, os.SEEK_CUR)
 				if err != nil {
 					return
 				}
@@ -148,14 +148,14 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 					log.Println("open failed", err)
 					return
 				}
-				size1, err := fd.Seek(0, 2)
+				size1, err := fd.Seek(0, os.SEEK_END)
 				if err != nil {
 					log.Println(err)
 				}
 				if size1 < size0 {
-					fd.Seek(0, 0)
+					fd.Seek(0, os.SEEK_SET)
 				} else {
-					fd.Seek(size0, 0)
+					fd.Seek(size0, os.SEEK_SET)
 				}
 				reader = bufio.NewReader(fd)
 				continue
