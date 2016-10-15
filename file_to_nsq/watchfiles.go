@@ -39,6 +39,7 @@ func (f *FileList) Update(e fsnotify.Event) bool {
 }
 func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan chan int) {
 	f.Lock()
+	stat := true
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -48,10 +49,6 @@ func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan 
 	f.FileDescribe[file] = fd
 	donechan := f.FileStat[file]
 	f.Unlock()
-	_, err = fd.Seek(0, 2)
-	if err != nil {
-		return
-	}
 	reader := bufio.NewReader(fd)
 	for {
 		line, err := reader.ReadString('\n')
@@ -63,11 +60,13 @@ func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan 
 		case <-exitchan:
 			return
 		case <-donechan:
-			return
+			stat = false
 		default:
 		}
+		if stat == false && err == io.EOF {
+			return
+		}
 		if err == io.EOF {
-			log.Println("READ EOF")
 			continue
 		}
 		err = w.Publish(topic, []byte(line))
