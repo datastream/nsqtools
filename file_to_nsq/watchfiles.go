@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
-	"github.com/nsqio/go-nsq"
 	"github.com/fsnotify/fsnotify"
+	"github.com/nsqio/go-nsq"
 	"io"
 	"log"
 	"os"

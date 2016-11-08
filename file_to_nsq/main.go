@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/nsqio/go-nsq"
 	"github.com/fsnotify/fsnotify"
+	"github.com/nsqio/go-nsq"
 	"log"
 	"os"
 	"os/signal"
