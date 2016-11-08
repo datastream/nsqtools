@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/nsqio/go-nsq"
-	"gopkg.in/fsnotify.v1"
+	"github.com/fsnotify/fsnotify"
 	"log"
 	"os"
 	"os/signal"

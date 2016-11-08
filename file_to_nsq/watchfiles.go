@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"github.com/nsqio/go-nsq"
-	"gopkg.in/fsnotify.v1"
+	"github.com/fsnotify/fsnotify"
 	"io"
 	"log"
 	"os"
