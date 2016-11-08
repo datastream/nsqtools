@@ -125,6 +125,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		if err != nil {
 			return
 		}
+		log.Println("reading from 0")
 	}
 	log.Println("reading ", file)
 	reader := bufio.NewReader(fd)
