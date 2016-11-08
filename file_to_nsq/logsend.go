@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/afex/hystrix-go/hystrix"
 	"github.com/hashicorp/consul/api"
 	"github.com/nsqio/go-nsq"
 	"io"
@@ -13,8 +14,9 @@ import (
 )
 
 type message struct {
-	topic string
-	body  [][]byte
+	topic      string
+	body       [][]byte
+	ResultChan chan error
 }
 
 type LogTask struct {
@@ -174,10 +176,19 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			body = append(body, []byte(line))
 			if len(body) > 100 {
 				msg := &message{
-					topic: topic,
-					body:  body,
+					topic:      topic,
+					body:       body,
+					ResultChan: make(chan error),
 				}
 				m.msgChan <- msg
+				for {
+					err := <-msg.ResultChan
+					if err == nil {
+						break
+					}
+					time.Sleep(time.Second)
+					m.msgChan <- msg
+				}
 				body = body[:0]
 			}
 		}
@@ -185,6 +196,11 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 }
 
 func (m *LogTask) WriteLoop(exitchan chan int) {
+	hystrix.ConfigureCommand("NSQWriter", hystrix.CommandConfig{
+		Timeout:               1000,
+		MaxConcurrentRequests: 1000,
+		ErrorPercentThreshold: 25,
+	})
 	for {
 		select {
 		case <-m.exitChan:
@@ -192,7 +208,22 @@ func (m *LogTask) WriteLoop(exitchan chan int) {
 		case <-exitchan:
 			return
 		case msg := <-m.msgChan:
-			m.Writer.MultiPublish(msg.topic, msg.body)
+			resultChan := make(chan int, 1)
+			var err error
+			errChan := hystrix.Go("NSQWriter", func() error {
+				err = m.Writer.MultiPublish(msg.topic, msg.body)
+				if err != nil {
+					return err
+				}
+				resultChan <- 1
+				return nil
+			}, nil)
+			select {
+			case <-resultChan:
+			case err = <-errChan:
+				log.Println("writeNSQ Error", err)
+			}
+			msg.ResultChan <- err
 		}
 	}
 }
