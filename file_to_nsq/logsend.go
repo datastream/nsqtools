@@ -120,12 +120,16 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		return
 	}
 	defer fd.Close()
+	_, err = fd.Seek(0, io.SeekStart)
+	if err != nil {
+		return
+	}
 	if len(m.Setting["read_all"]) == 0 {
-		_, err = fd.Seek(0, os.SEEK_END)
+		_, err = fd.Seek(0, io.SeekEnd)
 		if err != nil {
 			return
 		}
-		log.Println("reading from 0")
+		log.Println("reading from EOF")
 	}
 	log.Println("reading ", file)
 	reader := bufio.NewReader(fd)
@@ -142,7 +146,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			}
 			if err == io.EOF {
 				log.Println(file, "READ EOF")
-				size0, err := fd.Seek(0, os.SEEK_CUR)
+				size0, err := fd.Seek(0, io.SeekCurrent)
 				if err != nil {
 					return
 				}
@@ -151,14 +155,14 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 					log.Println("open failed", err)
 					return
 				}
-				size1, err := fd.Seek(0, os.SEEK_END)
+				size1, err := fd.Seek(0, io.SeekEnd)
 				if err != nil {
 					log.Println(err)
 				}
 				if size1 < size0 {
-					fd.Seek(0, os.SEEK_SET)
+					fd.Seek(0, io.SeekCurrent)
 				} else {
-					fd.Seek(size0, os.SEEK_SET)
+					fd.Seek(size0, io.SeekStart)
 				}
 				reader = bufio.NewReader(fd)
 				continue
