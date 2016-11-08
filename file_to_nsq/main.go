@@ -15,6 +15,7 @@ var (
 	fileDir    = flag.String("dir", "/tmp", "watch files")
 	nsqTopic   = flag.String("topic", "test#test", "nsq topic")
 	nsqAddress = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
+	filePatten = flag.String("file_name_patten", "", "file name patten")
 )
 
 func main() {

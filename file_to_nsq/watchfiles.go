@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,8 +40,20 @@ func (f *FileList) Update(e fsnotify.Event) bool {
 	return false
 }
 func (f *FileList) ReadLog(file string, topic string, w *nsq.Producer, exitchan chan int) {
+	items := strings.Split(file, "/")
+	fileName := items[len(items)-1]
+	if len(*filePatten) > 0 {
+		re, err := regexp.Compile(*filePatten)
+		if err != nil {
+			return
+		}
+		if !re.MatchString(fileName) {
+			return
+		}
+	}
 	f.Lock()
 	stat := true
+	log.Println(file)
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
