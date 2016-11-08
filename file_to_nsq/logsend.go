@@ -120,9 +120,11 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 		return
 	}
 	defer fd.Close()
-	_, err = fd.Seek(0, os.SEEK_END)
-	if err != nil {
-		return
+	if len(m.Setting["read_all"]) == 0 {
+		_, err = fd.Seek(0, os.SEEK_END)
+		if err != nil {
+			return
+		}
 	}
 	log.Println("reading ", file)
 	reader := bufio.NewReader(fd)
