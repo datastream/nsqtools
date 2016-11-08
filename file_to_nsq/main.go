@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/bitly/go-nsq"
+	"github.com/nsqio/go-nsq"
 	"gopkg.in/fsnotify.v1"
 	"log"
 	"os"
