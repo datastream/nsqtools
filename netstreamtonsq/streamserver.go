@@ -104,6 +104,9 @@ func (s *StreamServer) readUDP() {
 			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
+			if len(buf[:size]) < 1 {
+				continue
+			}
 			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
 				Rawmsg: proto.String(string(buf[:size])),
@@ -161,10 +164,14 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				err = scanner.Err()
 			}
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
+				log.Println(err)
 				return
 			}
 			msg := scanner.Text()
 			if s.IsIgnoreLog([]byte(msg)) {
+				continue
+			}
+			if len(msg) < 1 {
 				continue
 			}
 			logFormat := &LogFormat{
