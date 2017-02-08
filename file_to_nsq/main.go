@@ -15,10 +15,14 @@ import (
 var (
 	conf_file   = flag.String("conf", "config.json", "config file")
 	nsq_address = flag.String("nsq_address", "127.0.0.1:4150", "nsq")
+	batch       = flag.Int("int", 20, "multipublish size")
 )
 
 func main() {
 	flag.Parse()
+	if *batch < 1 {
+		*batch = 1
+	}
 	cfg := nsq.NewConfig()
 	hostname, err := os.Hostname()
 	cfg.Set("user_agent", fmt.Sprintf("file_to_nsq/%s", hostname))

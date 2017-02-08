@@ -162,6 +162,9 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 		default:
 			if scanner.Scan() == false {
 				err = scanner.Err()
+				if err == nil {
+					return
+				}
 			}
 			if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
 				log.Println(err)

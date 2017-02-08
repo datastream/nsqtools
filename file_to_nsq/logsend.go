@@ -174,7 +174,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 				return
 			}
 			body = append(body, []byte(line))
-			if len(body) > 100 {
+			if len(body) > *batch {
 				msg := &message{
 					topic:      topic,
 					body:       body,
