@@ -74,7 +74,7 @@ func (m *LogTask) ReadConfigFromConsul() (map[string]string, error) {
 	}
 	size := len(m.Setting["cluster"]) + 1
 	for _, value := range pairs {
-		if len(value.Key) > size {
+		if len(value.Key) > size && value.Key[size-1] == '/' {
 			consulSetting[value.Key[size:]] = string(value.Value)
 		}
 	}
