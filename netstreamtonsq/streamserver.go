@@ -104,9 +104,6 @@ func (s *StreamServer) readUDP() {
 			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
-			if len(buf[:size]) < 1 {
-				continue
-			}
 			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
 				Rawmsg: proto.String(string(buf[:size])),
@@ -196,6 +193,9 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 }
 
 func (s *StreamServer) IsIgnoreLog(buf []byte) bool {
+	if len(buf) < 1 {
+		return true
+	}
 	p := rfc3164.NewParser(buf)
 	if err := p.Parse(); err != nil {
 		return false
