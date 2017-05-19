@@ -77,7 +77,7 @@ func (s *StreamServer) writeLoop(w *nsq.Producer) {
 				break
 			}
 			bodies = append(bodies, record)
-			if len(bodies) > 100 {
+			if len(bodies) > 20 {
 				w.MultiPublish(s.Topic, bodies)
 				bodies = bodies[:0]
 			}
