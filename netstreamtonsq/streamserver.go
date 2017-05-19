@@ -70,11 +70,11 @@ func (s *StreamServer) writeLoop(w *nsq.Producer) {
 		select {
 		case msg := <-s.msgChan:
 			if s.IsIgnoreLog([]byte(msg.GetRawmsg())) {
-				continue
+				break
 			}
 			record, err := proto.Marshal(msg)
 			if err != nil {
-				continue
+				break
 			}
 			bodies = append(bodies, record)
 			if len(bodies) > 20 {
@@ -101,7 +101,7 @@ func (s *StreamServer) readUDP() {
 		log.Fatal("server bind failed:", err)
 	}
 	defer conn.Close()
-	var buf []byte
+	buf := make([]byte, 8192*8)
 	for {
 		select {
 		case <-s.exitChan:
