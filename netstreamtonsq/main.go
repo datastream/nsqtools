@@ -21,7 +21,7 @@ func main() {
 	}
 	s := &StreamServer{
 		exitChan: make(chan int),
-		msgChan:  make(chan [][]byte),
+		msgChan:  make(chan *LogFormat),
 	}
 	s.Setting = setting
 	go s.Run()

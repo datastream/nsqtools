@@ -20,7 +20,7 @@ import (
 type StreamServer struct {
 	*Setting
 	exitChan      chan int
-	msgChan       chan [][]byte
+	msgChan       chan *LogFormat
 	CurrentConfig map[string][]*regexp.Regexp
 	wg            sync.WaitGroup
 	client        *api.Client
@@ -65,10 +65,22 @@ func (s *StreamServer) Run() {
 }
 
 func (s *StreamServer) writeLoop(w *nsq.Producer) {
+	var bodies [][]byte
 	for {
 		select {
 		case msg := <-s.msgChan:
-			w.MultiPublish(s.Topic, msg)
+			if s.IsIgnoreLog([]byte(msg.GetRawmsg())) {
+				continue
+			}
+			record, err := proto.Marshal(msg)
+			if err != nil {
+				continue
+			}
+			bodies = append(bodies, record)
+			if len(bodies) > 20 {
+				w.MultiPublish(s.Topic, bodies)
+				bodies = bodies[:0]
+			}
 		case <-s.exitChan:
 			return
 		}
@@ -84,39 +96,27 @@ func (s *StreamServer) readUDP() {
 	if err != nil {
 		log.Fatal("udp:", err)
 	}
-	server, err := net.ListenUDP("udp", udpAddr)
+	conn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
 		log.Fatal("server bind failed:", err)
 	}
-	defer server.Close()
-	buf := make([]byte, 8192*8)
-	var bodies [][]byte
+	defer conn.Close()
+	var buf []byte
 	for {
 		select {
 		case <-s.exitChan:
 			return
 		default:
-			size, addr, err := server.ReadFromUDP(buf)
+			size, addr, err := conn.ReadFromUDP(buf)
 			if err != nil {
 				log.Println("read log failed", err)
-				continue
-			}
-			if s.IsIgnoreLog(buf[:size]) {
 				continue
 			}
 			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
 				Rawmsg: proto.String(string(buf[:size])),
 			}
-			record, err := proto.Marshal(logFormat)
-			if err != nil {
-				continue
-			}
-			bodies = append(bodies, record)
-			if len(bodies) > 100 {
-				s.msgChan <- bodies
-				bodies = bodies[:0]
-			}
+			s.msgChan <- logFormat
 		}
 	}
 }
@@ -150,7 +150,6 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 	addr := fd.RemoteAddr()
 	s.wg.Add(1)
 	defer s.wg.Done()
-	var bodies [][]byte
 	var err error
 	for {
 		select {
@@ -167,27 +166,12 @@ func (s *StreamServer) loghandle(fd net.Conn) {
 				log.Println(err)
 				return
 			}
-			msg := scanner.Text()
-			if s.IsIgnoreLog([]byte(msg)) {
-				continue
-			}
-			if len(msg) < 1 {
-				continue
-			}
+			line := scanner.Text()
 			logFormat := &LogFormat{
 				From:   proto.String(addr.String()),
-				Rawmsg: proto.String(msg),
+				Rawmsg: proto.String(string(line)),
 			}
-			record, err := proto.Marshal(logFormat)
-			if err != nil {
-				continue
-			}
-			bodies = append(bodies, record)
-			if len(bodies) > 100 {
-				s.msgChan <- bodies
-				bodies = bodies[:0]
-			}
-
+			s.msgChan <- logFormat
 		}
 	}
 }
