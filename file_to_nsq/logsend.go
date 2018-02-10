@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -94,11 +95,20 @@ func (m *LogTask) CheckReload() error {
 				delete(m.CurrentConfig, k)
 			}
 			if len(newConf[k]) > 0 {
-				fileNames := strings.Split(newConf[k], ",")
+				items := strings.Split(newConf[k], ":")
+				fileNames := strings.Split(items[0], ",")
 				m.LogStat[k] = make(chan int)
+				batch := 20
+				if len(items) > 1 {
+					if i, err := strconv.Atoi(items[1]); err == nil {
+						if i > 0 {
+							batch = i
+						}
+					}
+				}
 				for _, fileName := range fileNames {
 					go m.WriteLoop(m.LogStat[k])
-					go m.ReadLog(fileName, k, m.LogStat[k])
+					go m.ReadLog(fileName, k, m.LogStat[k], batch)
 				}
 			}
 		}
@@ -115,7 +125,7 @@ func (m *LogTask) CheckReload() error {
 	return nil
 }
 
-func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
+func (m *LogTask) ReadLog(file string, topic string, exitchan chan int, batch int) {
 	fd, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
@@ -135,6 +145,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 	}
 	log.Println("reading ", file)
 	reader := bufio.NewReader(fd)
+	retryCount := 0
 	var body [][]byte
 	for {
 		select {
@@ -144,6 +155,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				time.Sleep(time.Second)
+				retryCount++
 				line, err = reader.ReadString('\n')
 			}
 			if err == io.EOF {
@@ -167,30 +179,35 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int) {
 					fd.Seek(size0, io.SeekStart)
 				}
 				reader = bufio.NewReader(fd)
-				continue
+				if (len(body) == 0) || (retryCount < 5) {
+					continue
+				} else {
+					err = nil
+				}
 			}
 			if err != nil {
 				log.Println(err)
 				return
 			}
-			body = append(body, []byte(line))
-			if len(body) > *batch {
-				msg := &message{
-					topic:      topic,
-					body:       body,
-					ResultChan: make(chan error),
-				}
-				m.msgChan <- msg
-				for {
-					err := <-msg.ResultChan
-					if err == nil {
-						break
-					}
-					time.Sleep(time.Second)
-					m.msgChan <- msg
-				}
-				body = body[:0]
+			if line != "" {
+				body = append(body, []byte(line))
 			}
+			retryCount = 0
+			msg := &message{
+				topic:      topic,
+				body:       body,
+				ResultChan: make(chan error),
+			}
+			m.msgChan <- msg
+			for {
+				err := <-msg.ResultChan
+				if err == nil {
+					break
+				}
+				time.Sleep(time.Second)
+				m.msgChan <- msg
+			}
+			body = body[:0]
 		}
 	}
 }
@@ -211,7 +228,11 @@ func (m *LogTask) WriteLoop(exitchan chan int) {
 			resultChan := make(chan int, 1)
 			var err error
 			errChan := hystrix.Go("NSQWriter", func() error {
-				err = m.Writer.MultiPublish(msg.topic, msg.body)
+				if len(msg.body) > 1 {
+					err = m.Writer.MultiPublish(msg.topic, msg.body)
+				} else {
+					err = m.Writer.Publish(msg.topic, msg.body[0])
+				}
 				if err != nil {
 					return err
 				}
