@@ -214,9 +214,9 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int, batch in
 
 func (m *LogTask) WriteLoop(exitchan chan int) {
 	hystrix.ConfigureCommand("NSQWriter", hystrix.CommandConfig{
-		Timeout:               1000,
+		Timeout:               5000,
 		MaxConcurrentRequests: 1000,
-		ErrorPercentThreshold: 25,
+		ErrorPercentThreshold: 50,
 	})
 	for {
 		select {
