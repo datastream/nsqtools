@@ -180,7 +180,7 @@ func (m *LogTask) ReadLog(file string, topic string, exitchan chan int, batch in
 				}
 				reader = bufio.NewReader(fd)
 				if (len(body) == 0) || (retryCount < 5) {
-					continue
+					break
 				} else {
 					err = nil
 				}
